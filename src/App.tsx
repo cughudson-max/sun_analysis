@@ -17,6 +17,10 @@ function App() {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   
+  // Lights Refs
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
+  
   // Selection
   const selectionBoxRef = useRef<SelectionBox | null>(null);
   const selectionHelperRef = useRef<SelectionHelper | null>(null);
@@ -46,15 +50,24 @@ function App() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true; // Enable Shadows
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     // 4. Lights (Adjustable brightness)
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     scene.add(ambientLight);
+    ambientLightRef.current = ambientLight;
+
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(100, -100, 100);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.bias = -0.0001;
     scene.add(dirLight);
+    dirLightRef.current = dirLight;
 
     // 5. Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -98,7 +111,10 @@ function App() {
     // 9. UI (lil-gui)
     const gui = new GUI({ title: 'Settings' });
     const settings = {
-      brightness: 1.0,
+      brightness: 0.5, // Now mapped to Directional Light
+      ambientIntensity: 1.0,
+      ambientColor: '#ffffff',
+      shadows: true,
       bgTop: '#e0e0e0',
       bgBottom: '#ffffff',
       loadFile: () => {
@@ -106,10 +122,30 @@ function App() {
       }
     };
 
-    gui.add(settings, 'brightness', 0, 2).onChange((v: number) => {
-      ambientLight.intensity = v;
-      setBrightness(v);
+    // Brightness -> Directional Light Intensity (0 - 10)
+    gui.add(settings, 'brightness', 0, 10).name('Brightness (Sun)').onChange((v: number) => {
+      if (dirLightRef.current) dirLightRef.current.intensity = v;
+      // setBrightness(v); // No longer needed as state if only used for this
     });
+
+    // Ambient Light Controls
+    const folderAmbient = gui.addFolder('Ambient Light');
+    folderAmbient.add(settings, 'ambientIntensity', 0, 2).name('Intensity').onChange((v: number) => {
+        if (ambientLightRef.current) ambientLightRef.current.intensity = v;
+    });
+    folderAmbient.addColor(settings, 'ambientColor').name('Color').onChange((v: string) => {
+        if (ambientLightRef.current) ambientLightRef.current.color.set(v);
+    });
+
+    // Shadow Switch
+    gui.add(settings, 'shadows').name('Shadows').onChange((enabled: boolean) => {
+        if (dirLightRef.current) dirLightRef.current.castShadow = enabled;
+        // Also update renderer? Usually not needed if light stops casting.
+        // But let's check if we need to toggle renderer.shadowMap.enabled
+        // renderer.shadowMap.enabled = enabled; // This requires material update sometimes.
+        // Toggling light.castShadow is safer and immediate.
+    });
+
     gui.addColor(settings, 'bgTop').onChange((v: string) => setBgTop(v));
     gui.addColor(settings, 'bgBottom').onChange((v: string) => setBgBottom(v));
     gui.add(settings, 'loadFile').name('Open .3dm File');
@@ -338,6 +374,31 @@ function App() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    
+    // Clear previous model
+    if (sceneRef.current) {
+        // Remove objects that are NOT helpers or lights
+        // We can tag the loaded model with a name or type to easily remove it.
+        // Or simply remove all Meshes that are not helpers.
+        const toRemove: THREE.Object3D[] = [];
+        sceneRef.current.children.forEach(child => {
+            // Keep lights, camera helpers, grid, axes
+            if (child instanceof THREE.Light) return;
+            if (child instanceof THREE.GridHelper) return;
+            if (child instanceof THREE.AxesHelper) return;
+            if (child.name === 'selection-box') return; // SelectionHelper
+            if (child.type === 'Camera') return;
+            
+            // Assume everything else is part of the loaded model or its helpers
+            toRemove.push(child);
+        });
+        
+        toRemove.forEach(child => sceneRef.current?.remove(child));
+        
+        // Also clear selection
+        selectedObjectsRef.current.clear();
+        updateHighlights();
+    }
 
     const loader = new Rhino3dmLoader();
     loader.setLibraryPath('/'); // Public folder
@@ -353,6 +414,10 @@ function App() {
         if (child instanceof THREE.Mesh) {
            console.log('Processing mesh:', child.name || child.uuid);
            
+           // Enable Shadows
+           child.castShadow = true;
+           child.receiveShadow = true;
+
            // Debug Logging for UserData
            if (child.userData) {
                try {
@@ -446,6 +511,44 @@ function App() {
       const box = new THREE.Box3().setFromObject(object);
       if (!box.isEmpty()) {
           zoomToBox(box);
+          
+          // Adjust Shadow Camera Frustum
+          if (dirLightRef.current) {
+              const center = box.getCenter(new THREE.Vector3());
+              const size = box.getSize(new THREE.Vector3());
+              const maxDim = Math.max(size.x, size.y, size.z);
+              
+              const shadowCam = dirLightRef.current.shadow.camera;
+              shadowCam.left = -maxDim;
+              shadowCam.right = maxDim;
+              shadowCam.top = maxDim;
+              shadowCam.bottom = -maxDim;
+              
+              // Ensure near/far cover the model
+              // Light is at 100, -100, 100. Distance to center 0,0,0 is ~173.
+              // If model is far, we need to adjust position or range.
+              // Let's position light relative to model center? 
+              // Usually directional light position only affects direction, but for shadows it defines the "center" of shadow map projection.
+              // Ideally move light to follow model center but keep direction.
+              const direction = dirLightRef.current.position.clone().normalize();
+              const dist = maxDim * 2; // Distance from center
+              const newLightPos = center.clone().add(direction.multiplyScalar(dist));
+              
+              // Actually we can just keep light position if we adjust near/far and camera bounds, 
+              // BUT shadow camera is orthographic centered at Light Position!
+              // So we MUST move light to center of model (projected back along light dir) to cover it efficiently.
+              
+              dirLightRef.current.position.copy(newLightPos);
+              dirLightRef.current.target.position.copy(center);
+              dirLightRef.current.target.updateMatrixWorld();
+              
+              shadowCam.near = 0.1;
+              shadowCam.far = dist * 4;
+              shadowCam.updateProjectionMatrix();
+              
+              // Debug
+              console.log('Shadow camera updated', shadowCam);
+          }
       }
 
       // Clear previous model if needed? Or just add.
