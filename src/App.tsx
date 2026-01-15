@@ -21,6 +21,7 @@ function App() {
   const selectionBoxRef = useRef<SelectionBox | null>(null);
   const selectionHelperRef = useRef<SelectionHelper | null>(null);
   const selectedObjectsRef = useRef<Set<string>>(new Set()); // Store UUIDs
+  const lastMiddleClickTime = useRef<number>(0);
   
   // UI State
   const [, setBrightness] = useState(1.0);
@@ -133,6 +134,15 @@ function App() {
     let isSelecting = false;
 
     const onPointerDown = (event: PointerEvent) => {
+      // Middle Click Double Click Check
+      if (event.button === 1) {
+          const now = Date.now();
+          if (now - lastMiddleClickTime.current < 300) {
+              zoomToSelection();
+          }
+          lastMiddleClickTime.current = now;
+      }
+
       // Check for Ctrl key
       if (event.ctrlKey) {
         isSelecting = true;
@@ -244,6 +254,49 @@ function App() {
     updateHighlights();
   };
 
+  const zoomToBox = (box: THREE.Box3) => {
+      if (box.isEmpty() || !cameraRef.current || !controlsRef.current) return;
+      
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      
+      const fov = cameraRef.current.fov * (Math.PI / 180);
+      let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+      cameraZ *= 2.0; // Zoom out a bit
+      
+      const direction = new THREE.Vector3().subVectors(cameraRef.current.position, controlsRef.current.target).normalize();
+      if (direction.lengthSq() < 0.001) direction.set(1, -1, 1).normalize();
+      
+      const newPos = center.clone().add(direction.multiplyScalar(cameraZ));
+      cameraRef.current.position.copy(newPos);
+      cameraRef.current.lookAt(center);
+      
+      // Adjust clipping planes
+      cameraRef.current.near = maxDim / 1000;
+      cameraRef.current.far = maxDim * 100;
+      cameraRef.current.updateProjectionMatrix();
+      
+      controlsRef.current.target.copy(center);
+      controlsRef.current.update();
+  };
+
+  const zoomToSelection = () => {
+      if (selectedObjectsRef.current.size === 0) return;
+      
+      const box = new THREE.Box3();
+      if (!sceneRef.current) return;
+
+      selectedObjectsRef.current.forEach(uuid => {
+           const obj = sceneRef.current?.getObjectByProperty('uuid', uuid);
+           if (obj) {
+               box.expandByObject(obj);
+           }
+      });
+      
+      zoomToBox(box);
+  };
+
   const updateHighlights = () => {
      if (!sceneRef.current) return;
      
@@ -293,70 +346,106 @@ function App() {
     
     loader.load(url, (object) => {
       // Process object
+      console.log('Model loaded:', object);
+
       // 1. Traverse and Add Edges (Sketchup Style)
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
+           console.log('Processing mesh:', child.name || child.uuid);
+           
+           // Debug Logging for UserData
+           if (child.userData) {
+               try {
+                   console.log('UserData keys:', Object.keys(child.userData));
+                   if (child.userData.attributes) {
+                       console.log('Attributes:', child.userData.attributes);
+                       if (child.userData.attributes.drawColor) {
+                           console.log('DrawColor found in attributes:', child.userData.attributes.drawColor);
+                       }
+                   }
+               } catch (e) {
+                   console.error('Error logging userData:', e);
+               }
+           }
+
            // Create Black Edges
            const edges = new THREE.EdgesGeometry(child.geometry);
            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
            child.add(line);
            
-           // Ensure material handles colors
-           // 3DMLoader usually handles this.
-           // Fix 2: If model color is "not set" (which we interpret as Black 0x000000, common for default layers), force White.
-           // However, Rhino3dmLoader puts the resolved "display color" (from layer or object) into userData.attributes.drawColor.
+           // Ensure material exists
            if (!child.material) {
              child.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
            }
 
-           const mat = child.material as THREE.MeshStandardMaterial;
-
-           // Apply Display Color (Layer Color) if material is default white
-           if (child.userData.attributes && child.userData.attributes.drawColor) {
-              const _color = child.userData.attributes.drawColor;
-              // If material is white, assume it's the default and we should use the display color.
-              if (mat.color && mat.color.getHex() === 0xffffff) {
-                  mat.color.setRGB(_color.r / 255.0, _color.g / 255.0, _color.b / 255.0);
-              }
+           // Handle Array Materials and Clone to avoid side-effects
+           const materials = Array.isArray(child.material) ? child.material : [child.material];
+           // Clone materials so we can modify them individually without affecting shared materials
+           const clonedMaterials = materials.map(m => m.clone());
+           child.material = Array.isArray(child.material) ? clonedMaterials : clonedMaterials[0];
+           
+           // Attempt to find the correct display color
+           let drawColor = null;
+           
+           // Strategy 1: Check child.userData.attributes.drawColor (Standard Rhino3dmLoader)
+           if (child.userData?.attributes?.drawColor) {
+               drawColor = child.userData.attributes.drawColor;
+           } 
+           // Strategy 2: Check child.userData.drawColor (Direct)
+           else if (child.userData?.drawColor) {
+               drawColor = child.userData.drawColor;
+           }
+           // Strategy 3: Check Parent's attributes (e.g. if child is part of an Instance/Block)
+           else if (child.parent && child.parent.type !== 'Scene' && child.parent.userData?.attributes?.drawColor) {
+               drawColor = child.parent.userData.attributes.drawColor;
+               console.log('Found drawColor in parent:', drawColor);
            }
 
-           // Fix 3: If the resulting color is pure black (e.g. Layer 0 is black), force White for visibility.
-           if (mat.color && mat.color.getHex() === 0x000000) {
-              mat.color.setHex(0xffffff);
-           }
+           clonedMaterials.forEach(mat => {
+               // We only modify materials that support color
+               if (mat.color) {
+                   if (drawColor) {
+                       // Apply drawColor
+                       if (typeof drawColor === 'object' && 'r' in drawColor) {
+                           // User Request: If drawColor is black, set to white for better visibility
+                           if (drawColor.r === 0 && drawColor.g === 0 && drawColor.b === 0) {
+                               console.log('DrawColor is black, forcing white as requested');
+                               mat.color.setHex(0xffffff);
+                           } else {
+                               // Rhino colors are 0-255
+                               mat.color.setRGB(drawColor.r / 255.0, drawColor.g / 255.0, drawColor.b / 255.0);
+                           }
+                           console.log('Applied drawColor (RGB):', mat.color);
+                       } else if (typeof drawColor === 'number') {
+                           // Integer color
+                           if (drawColor === 0) {
+                               console.log('DrawColor is black (0), forcing white as requested');
+                               mat.color.setHex(0xffffff);
+                           } else {
+                               mat.color.setHex(drawColor);
+                           }
+                           console.log('Applied drawColor (Hex):', mat.color);
+                       }
+                   } else {
+                       // No drawColor found.
+                       // If material is pure black (0x000000), it might be uninitialized or default.
+                       // We force it to white for better visibility in the viewer, 
+                       // unless the user really wanted black (which is hard to distinguish from uninitialized).
+                       // For now, if it's black, we make it white.
+                       if (mat.color.getHex() === 0x000000) {
+                          console.log('Material is black and no drawColor found, defaulting to white');
+                          mat.color.setHex(0xffffff);
+                       }
+                   }
+               }
+           });
         }
       });
       
       // Fix 1: Zoom Extents & Adjust Clipping Planes
       const box = new THREE.Box3().setFromObject(object);
       if (!box.isEmpty()) {
-          const center = box.getCenter(new THREE.Vector3());
-          const size = box.getSize(new THREE.Vector3());
-          const maxDim = Math.max(size.x, size.y, size.z);
-          
-          if (cameraRef.current && controlsRef.current) {
-              const fov = cameraRef.current.fov * (Math.PI / 180);
-              let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-              cameraZ *= 2.0; // Zoom out a bit
-              
-              // Move camera to look at center
-              // Keep current orientation but move distance
-              const direction = new THREE.Vector3().subVectors(cameraRef.current.position, controlsRef.current.target).normalize();
-              // If direction is zero (start), use default
-              if (direction.lengthSq() < 0.001) direction.set(1, -1, 1).normalize();
-              
-              const newPos = center.clone().add(direction.multiplyScalar(cameraZ));
-              cameraRef.current.position.copy(newPos);
-              cameraRef.current.lookAt(center);
-              
-              // Adjust clipping planes
-              cameraRef.current.near = maxDim / 1000;
-              cameraRef.current.far = maxDim * 100;
-              cameraRef.current.updateProjectionMatrix();
-              
-              controlsRef.current.target.copy(center);
-              controlsRef.current.update();
-          }
+          zoomToBox(box);
       }
 
       // Clear previous model if needed? Or just add.
