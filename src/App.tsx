@@ -304,15 +304,25 @@ function App() {
            // Ensure material handles colors
            // 3DMLoader usually handles this.
            // Fix 2: If model color is "not set" (which we interpret as Black 0x000000, common for default layers), force White.
+           // However, Rhino3dmLoader puts the resolved "display color" (from layer or object) into userData.attributes.drawColor.
            if (!child.material) {
              child.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-           } else {
-             const mat = child.material as THREE.MeshStandardMaterial;
-             // If the color is pure black, change it to white.
-             // This assumes the user doesn't intentionally want pure black objects (which are hard to see anyway).
-             if (mat.color && mat.color.getHex() === 0x000000) {
-                mat.color.setHex(0xffffff);
-             }
+           }
+
+           const mat = child.material as THREE.MeshStandardMaterial;
+
+           // Apply Display Color (Layer Color) if material is default white
+           if (child.userData.attributes && child.userData.attributes.drawColor) {
+              const _color = child.userData.attributes.drawColor;
+              // If material is white, assume it's the default and we should use the display color.
+              if (mat.color && mat.color.getHex() === 0xffffff) {
+                  mat.color.setRGB(_color.r / 255.0, _color.g / 255.0, _color.b / 255.0);
+              }
+           }
+
+           // Fix 3: If the resulting color is pure black (e.g. Layer 0 is black), force White for visibility.
+           if (mat.color && mat.color.getHex() === 0x000000) {
+              mat.color.setHex(0xffffff);
            }
         }
       });
