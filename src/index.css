@@ -25,3 +25,22 @@ body {
   z-index: 1000;
   display: none;
 }
+
+/* Loader Style */
+.loader {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #e0e0e0; /* Light grey */
+  border-top: 2px solid #333; /* Darker grey/black for contrast */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2000;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

@@ -800,22 +800,7 @@ function App() {
         background: `linear-gradient(to bottom, ${bgTop}, ${bgBottom})`
       }}
     >
-      {isLoading && (
-        <div style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(0,0,0,0.7)',
-            color: 'white',
-            padding: '20px',
-            borderRadius: '10px',
-            zIndex: 2000,
-            fontFamily: 'sans-serif'
-        }}>
-            Loading: {loadingProgress}%
-        </div>
-      )}
+      {isLoading && <div className="loader" title={`Loading: ${loadingProgress}%`}></div>}
       <div ref={selectionBoxDivRef} className="selection-box"></div>
       <input 
         type="file" 
