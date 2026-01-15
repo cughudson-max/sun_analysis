@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import { SelectionBox } from 'three/examples/jsm/interactive/SelectionBox.js';
-import { SelectionHelper } from 'three/examples/jsm/interactive/SelectionHelper.js';
 import GUI from 'lil-gui';
+import SunCalc from 'suncalc';
 import './index.css';
 
 // Set Z-Up as requested
@@ -20,17 +20,26 @@ function App() {
   // Lights Refs
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const groundRef = useRef<THREE.Mesh | null>(null);
   
   // Selection
   const selectionBoxRef = useRef<SelectionBox | null>(null);
-  const selectionHelperRef = useRef<SelectionHelper | null>(null);
+  const selectionBoxDivRef = useRef<HTMLDivElement>(null);
+  const startMouseRef = useRef<{x: number, y: number, time: number}>({ x: 0, y: 0, time: 0 });
   const selectedObjectsRef = useRef<Set<string>>(new Set()); // Store UUIDs
   const lastMiddleClickTime = useRef<number>(0);
   
   // UI State
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const [, setBrightness] = useState(1.0);
   const [bgTop, setBgTop] = useState('#e0e0e0');
   const [bgBottom, setBgBottom] = useState('#ffffff');
+  
+  // Location & Time State (Defaults)
+  const [latitude, setLatitude] = useState(39.9); // Beijing
+  const [longitude, setLongitude] = useState(116.4); // Beijing
+  const [date, setDate] = useState(new Date());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -63,11 +72,28 @@ function App() {
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(100, -100, 100);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.bias = -0.0001;
+    
+    // Improved Shadow Quality
+    dirLight.shadow.mapSize.width = 4096;
+    dirLight.shadow.mapSize.height = 4096;
+    dirLight.shadow.bias = -0.00005; // Tuned for artifacts
+    dirLight.shadow.normalBias = 0.02; // Helps with self-shadowing
+    
+    // Initial Shadow Camera (Will be updated on load)
+    const d = 100;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    dirLight.shadow.camera.near = 0.1;
+    dirLight.shadow.camera.far = 10000; // Increased far plane
+
     scene.add(dirLight);
+    scene.add(dirLight.target); // Important for target to work
     dirLightRef.current = dirLight;
+    
+    // Infinite Ground Plane - REMOVED, now dynamic
+    // groundRef is still used but initialized later
 
     // 5. Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -90,8 +116,7 @@ function App() {
     // 7. Selection Box Setup
     const selectionBox = new SelectionBox(camera, scene);
     selectionBoxRef.current = selectionBox;
-    const helper = new SelectionHelper(renderer, 'selection-box');
-    selectionHelperRef.current = helper;
+    // Helper removed, using custom div logic
 
     // 8. Event Listeners for Interaction
     const handleResize = () => {
@@ -140,15 +165,61 @@ function App() {
     // Shadow Switch
     gui.add(settings, 'shadows').name('Shadows').onChange((enabled: boolean) => {
         if (dirLightRef.current) dirLightRef.current.castShadow = enabled;
-        // Also update renderer? Usually not needed if light stops casting.
-        // But let's check if we need to toggle renderer.shadowMap.enabled
-        // renderer.shadowMap.enabled = enabled; // This requires material update sometimes.
-        // Toggling light.castShadow is safer and immediate.
+        
+        if (enabled) {
+            updateGround();
+        } else {
+            // Remove ground
+            if (groundRef.current) {
+                sceneRef.current?.remove(groundRef.current);
+                groundRef.current = null;
+            }
+        }
     });
 
     gui.addColor(settings, 'bgTop').onChange((v: string) => setBgTop(v));
     gui.addColor(settings, 'bgBottom').onChange((v: string) => setBgBottom(v));
-    gui.add(settings, 'loadFile').name('Open .3dm File');
+    
+    // Ground Settings - REMOVED
+
+    // Location & Time Controls
+    const folderLocation = gui.addFolder('Location & Time');
+    
+    const locSettings = {
+        latitude: 39.9,
+        longitude: 116.4,
+        dateString: new Date().toISOString().substring(0, 16) // YYYY-MM-DDTHH:mm
+    };
+    
+    folderLocation.add(locSettings, 'latitude', -90, 90).name('Latitude').onChange((v: number) => {
+        setLatitude(v);
+    });
+    folderLocation.add(locSettings, 'longitude', -180, 180).name('Longitude').onChange((v: number) => {
+        setLongitude(v);
+    });
+    
+    // Date/Time Control (String input for now, maybe custom slider later)
+     // Lil-gui doesn't have a date picker, so we use string or separate sliders.
+     // Let's use hour slider for easy day cycle.
+     
+     const timeSettings = {
+         hour: new Date().getHours() + new Date().getMinutes() / 60,
+         month: new Date().getMonth() + 1
+     };
+
+     const updateDate = () => {
+         const now = new Date();
+         now.setMonth(timeSettings.month - 1);
+         now.setHours(Math.floor(timeSettings.hour));
+         now.setMinutes((timeSettings.hour % 1) * 60);
+         setDate(now);
+     };
+     
+     folderLocation.add(timeSettings, 'month', 1, 12, 1).name('Month').onChange(updateDate);
+     folderLocation.add(timeSettings, 'hour', 0, 23.99).name('Hour').onChange(updateDate);
+ 
+     gui.add(settings, 'loadFile').name('Open .3dm File');
+
 
     // Cleanup
     return () => {
@@ -185,18 +256,50 @@ function App() {
         // Disable orbit controls temporarily
         if (controlsRef.current) controlsRef.current.enabled = false;
         
-        if (selectionBoxRef.current && selectionHelperRef.current) {
+        // Show selection box
+        if (selectionBoxDivRef.current) {
+            selectionBoxDivRef.current.style.display = 'block';
+            selectionBoxDivRef.current.style.left = `${event.clientX}px`;
+            selectionBoxDivRef.current.style.top = `${event.clientY}px`;
+            selectionBoxDivRef.current.style.width = '0px';
+            selectionBoxDivRef.current.style.height = '0px';
+        }
+        startMouseRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
+        
+        if (selectionBoxRef.current) {
           selectionBoxRef.current.startPoint.set(
             (event.clientX / window.innerWidth) * 2 - 1,
             -(event.clientY / window.innerHeight) * 2 + 1,
             0.5
           );
         }
+      } else {
+         // Record time for simple click check
+         startMouseRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
       }
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      if (isSelecting && selectionBoxRef.current && selectionHelperRef.current) {
+      if (isSelecting && selectionBoxRef.current) {
+        // Update selection box visual
+        if (selectionBoxDivRef.current) {
+            const currentX = event.clientX;
+            const currentY = event.clientY;
+            const startX = startMouseRef.current.x;
+            const startY = startMouseRef.current.y;
+            
+            // Calculate top-left and width/height
+            const newLeft = Math.min(startX, currentX);
+            const newTop = Math.min(startY, currentY);
+            const newWidth = Math.abs(currentX - startX);
+            const newHeight = Math.abs(currentY - startY);
+            
+            selectionBoxDivRef.current.style.left = `${newLeft}px`;
+            selectionBoxDivRef.current.style.top = `${newTop}px`;
+            selectionBoxDivRef.current.style.width = `${newWidth}px`;
+            selectionBoxDivRef.current.style.height = `${newHeight}px`;
+        }
+
         selectionBoxRef.current.endPoint.set(
           (event.clientX / window.innerWidth) * 2 - 1,
           -(event.clientY / window.innerHeight) * 2 + 1,
@@ -206,7 +309,14 @@ function App() {
     };
 
     const onPointerUp = (event: PointerEvent) => {
-      if (isSelecting && selectionBoxRef.current && selectionHelperRef.current) {
+      if (isSelecting && selectionBoxRef.current) {
+        // Hide selection box
+        if (selectionBoxDivRef.current) {
+            selectionBoxDivRef.current.style.display = 'none';
+            selectionBoxDivRef.current.style.width = '0px';
+            selectionBoxDivRef.current.style.height = '0px';
+        }
+
         selectionBoxRef.current.endPoint.set(
           (event.clientX / window.innerWidth) * 2 - 1,
           -(event.clientY / window.innerHeight) * 2 + 1,
@@ -235,6 +345,14 @@ function App() {
     
     const onClick = (event: MouseEvent) => {
       if (event.ctrlKey) return; // Handled by box selection
+      
+      // Check for long press (drag)
+      const now = Date.now();
+      if (now - startMouseRef.current.time > 300) {
+          // Long press detected, ignore selection
+          return;
+      }
+
       // If moved significantly, it's a drag (Orbit), ignore.
       // We can check this by storing down position.
       
@@ -246,9 +364,11 @@ function App() {
       if (!sceneRef.current) return;
       
       const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
-      // Filter out helpers
+      // Filter out helpers and Ground
       const validIntersects = intersects.filter(hit => {
-         return hit.object.type === 'Mesh' && hit.object.name !== 'HighlightLine';
+         return hit.object.type === 'Mesh' && 
+                hit.object.name !== 'HighlightLine' &&
+                hit.object.name !== 'Ground';
       });
 
       if (validIntersects.length > 0) {
@@ -275,7 +395,7 @@ function App() {
   }, []);
 
   const handleSelection = (objects: THREE.Object3D[], shiftKey: boolean) => {
-    const validObjects = objects.filter(o => o.type === 'Mesh' && o.name !== 'HighlightLine');
+    const validObjects = objects.filter(o => o.type === 'Mesh' && o.name !== 'HighlightLine' && o.name !== 'Ground');
     const newSelection = shiftKey ? new Set(selectedObjectsRef.current) : new Set<string>();
 
     validObjects.forEach(obj => {
@@ -313,6 +433,31 @@ function App() {
       cameraRef.current.far = maxDim * 100;
       cameraRef.current.updateProjectionMatrix();
       
+      // Update Shadow Camera to cover model
+      if (dirLightRef.current) {
+          const d = maxDim * 1.5; // Ensure it covers the model with some margin
+          dirLightRef.current.shadow.camera.left = -d;
+          dirLightRef.current.shadow.camera.right = d;
+          dirLightRef.current.shadow.camera.top = d;
+          dirLightRef.current.shadow.camera.bottom = -d;
+          dirLightRef.current.shadow.camera.far = Math.max(5000, maxDim * 10);
+          dirLightRef.current.shadow.camera.updateProjectionMatrix();
+          
+          // Move light target to center
+          dirLightRef.current.target.position.copy(center);
+          dirLightRef.current.target.updateMatrixWorld();
+          
+          // Re-update sun position to respect new target
+          // The previous sun position was relative to (0,0,0). 
+          // If we move target, we should move position too to keep direction?
+          // Actually updateSunPosition sets absolute position.
+          // Direction is (Position - Target).
+          // If we want same direction, we should add Center to Position.
+          // But updateSunPosition is based on Earth coordinates, usually assuming origin is "Observer".
+          // If we treat "Observer" as the model center:
+          updateSunPosition(latitude, longitude, date);
+      }
+      
       controlsRef.current.target.copy(center);
       controlsRef.current.update();
   };
@@ -331,6 +476,72 @@ function App() {
       });
       
       zoomToBox(box);
+  };
+
+  const updateGround = () => {
+      if (!sceneRef.current) return;
+      
+      // 1. Calculate Bounding Box of all Meshes (excluding helpers/ground)
+      const box = new THREE.Box3();
+      let hasObjects = false;
+      
+      sceneRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+              // Ignore helpers, existing ground, selection box
+              if (child.name === 'Ground') return;
+              if (child.name === 'selection-box') return;
+              if (child.name === 'HighlightLine') return;
+              if (child instanceof THREE.GridHelper) return;
+              if (child instanceof THREE.AxesHelper) return;
+              
+              // Only consider loaded model parts
+              box.expandByObject(child);
+              hasObjects = true;
+          }
+      });
+      
+      if (!hasObjects) {
+          // If no objects, maybe just a default small ground or none
+          // Let's make a default one if empty so we have something
+           const defaultSize = 1000;
+           box.min.set(-defaultSize, -defaultSize, 0);
+           box.max.set(defaultSize, defaultSize, 0);
+      }
+      
+      // 2. Create/Resize Ground
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      
+      // Make ground larger than the box to catch shadows
+      // Say 10x the max dimension
+      const maxDim = Math.max(size.x, size.y);
+      const groundSize = Math.max(maxDim * 10, 10000); // Minimum 10000
+      
+      // Remove old ground if exists
+      if (groundRef.current) {
+          sceneRef.current.remove(groundRef.current);
+          if (groundRef.current.geometry) groundRef.current.geometry.dispose();
+          // Reuse material if possible, but creating new one is cheap enough
+      }
+      
+      const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+      const groundMaterial = new THREE.ShadowMaterial({ opacity: 0.3, color: 0x000000 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.name = 'Ground';
+      
+      // Position at Z=0 (Standard Ground)
+      // Or should it be at box.min.z? 
+      // User said "ShadowOnly Ground based on size". Usually ground is at 0.
+      // If model is floating, shadow falls on 0. 
+      // If model is below 0, shadow might be weird. 
+      // Let's stick to Z=0 as the "Floor".
+      ground.position.set(0, 0, 0);
+      ground.receiveShadow = true;
+      
+      sceneRef.current.add(ground);
+      groundRef.current = ground;
   };
 
   const updateHighlights = () => {
@@ -387,6 +598,7 @@ function App() {
             if (child instanceof THREE.GridHelper) return;
             if (child instanceof THREE.AxesHelper) return;
             if (child.name === 'selection-box') return; // SelectionHelper
+            if (child.name === 'Ground') return; // Keep Ground
             if (child.type === 'Camera') return;
             
             // Assume everything else is part of the loaded model or its helpers
@@ -406,6 +618,9 @@ function App() {
     const url = URL.createObjectURL(file);
     
     loader.load(url, (object) => {
+      setIsLoading(false);
+      setLoadingProgress(100);
+      
       // Process object
       console.log('Model loaded:', object);
 
@@ -507,61 +722,74 @@ function App() {
         }
       });
       
+      sceneRef.current?.add(object);
+
+      // Update Ground if shadows are enabled
+      if (dirLightRef.current?.castShadow) {
+          updateGround();
+      }
+      
       // Fix 1: Zoom Extents & Adjust Clipping Planes
       const box = new THREE.Box3().setFromObject(object);
-      if (!box.isEmpty()) {
-          zoomToBox(box);
-          
-          // Adjust Shadow Camera Frustum
-          if (dirLightRef.current) {
-              const center = box.getCenter(new THREE.Vector3());
-              const size = box.getSize(new THREE.Vector3());
-              const maxDim = Math.max(size.x, size.y, size.z);
-              
-              const shadowCam = dirLightRef.current.shadow.camera;
-              shadowCam.left = -maxDim;
-              shadowCam.right = maxDim;
-              shadowCam.top = maxDim;
-              shadowCam.bottom = -maxDim;
-              
-              // Ensure near/far cover the model
-              // Light is at 100, -100, 100. Distance to center 0,0,0 is ~173.
-              // If model is far, we need to adjust position or range.
-              // Let's position light relative to model center? 
-              // Usually directional light position only affects direction, but for shadows it defines the "center" of shadow map projection.
-              // Ideally move light to follow model center but keep direction.
-              const direction = dirLightRef.current.position.clone().normalize();
-              const dist = maxDim * 2; // Distance from center
-              const newLightPos = center.clone().add(direction.multiplyScalar(dist));
-              
-              // Actually we can just keep light position if we adjust near/far and camera bounds, 
-              // BUT shadow camera is orthographic centered at Light Position!
-              // So we MUST move light to center of model (projected back along light dir) to cover it efficiently.
-              
-              dirLightRef.current.position.copy(newLightPos);
-              dirLightRef.current.target.position.copy(center);
-              dirLightRef.current.target.updateMatrixWorld();
-              
-              shadowCam.near = 0.1;
-              shadowCam.far = dist * 4;
-              shadowCam.updateProjectionMatrix();
-              
-              // Debug
-              console.log('Shadow camera updated', shadowCam);
-          }
-      }
+      zoomToBox(box);
 
-      // Clear previous model if needed? Or just add.
-      // Let's add.
-      sceneRef.current?.add(object);
-      
-      // Cleanup
-      URL.revokeObjectURL(url);
-    }, undefined, (error) => {
-      console.error(error);
-      alert('Error loading file');
+    }, (xhr) => {
+        // Progress
+        if (xhr.lengthComputable) {
+            const percentComplete = (xhr.loaded / xhr.total) * 100;
+            setLoadingProgress(Math.round(percentComplete));
+            setIsLoading(true);
+        }
+    }, (error) => {
+        console.error(error);
+        setIsLoading(false);
     });
   };
+
+  const updateSunPosition = (lat: number, lon: number, dateVal: Date) => {
+      if (!dirLightRef.current) return;
+      
+      const times = SunCalc.getPosition(dateVal, lat, lon);
+      
+      const phi = times.altitude;
+      const theta = times.azimuth; 
+      
+      // Conversion depends on coordinate system.
+      // Standard Mapping for Z-up Architecture:
+      // +X = East, +Y = North.
+      // SunCalc Azimuth: 0 = South (-Y), -PI/2 = East (+X), PI/2 = West (-X), PI = North (+Y).
+      
+      const r = 1000;
+      
+      const x = r * Math.cos(phi) * -Math.sin(theta);
+      const y = r * Math.cos(phi) * -Math.cos(theta);
+      const z = r * Math.sin(phi);
+      
+      // If we have a target (center of model), we should position light relative to it?
+      // Or just set position far away?
+      // DirectionalLight uses position and target to determine direction.
+      // Direction = Target - Position.
+      // We want Light -> Target to be the Sun direction.
+      // So Position should be Target + SunVector.
+      
+      if (dirLightRef.current.target) {
+          const targetPos = dirLightRef.current.target.position;
+          dirLightRef.current.position.set(
+              targetPos.x + x,
+              targetPos.y + y,
+              targetPos.z + z
+          );
+      } else {
+          dirLightRef.current.position.set(x, y, z);
+      }
+      
+      dirLightRef.current.updateMatrixWorld();
+  };
+  
+  // Update sun when params change
+  useEffect(() => {
+      updateSunPosition(latitude, longitude, date);
+  }, [latitude, longitude, date]);
 
   return (
     <div 
@@ -572,6 +800,23 @@ function App() {
         background: `linear-gradient(to bottom, ${bgTop}, ${bgBottom})`
       }}
     >
+      {isLoading && (
+        <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(0,0,0,0.7)',
+            color: 'white',
+            padding: '20px',
+            borderRadius: '10px',
+            zIndex: 2000,
+            fontFamily: 'sans-serif'
+        }}>
+            Loading: {loadingProgress}%
+        </div>
+      )}
+      <div ref={selectionBoxDivRef} className="selection-box"></div>
       <input 
         type="file" 
         id="file-input" 
