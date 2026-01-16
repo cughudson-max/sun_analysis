@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 interface ViewCubeProps {
   controlsRef: React.MutableRefObject<OrbitControls | null>;
-  cameraRef: React.MutableRefObject<THREE.PerspectiveCamera | null>;
+  cameraRef: React.MutableRefObject<THREE.Camera | null>;
 }
 
 const ViewCube: React.FC<ViewCubeProps> = ({ controlsRef, cameraRef }) => {

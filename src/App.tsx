@@ -15,7 +15,10 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const cameraRef = useRef<THREE.Camera | null>(null);
+  const perspectiveCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const orthographicCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const orthoFrustumHeightRef = useRef<number>(100);
   const controlsRef = useRef<OrbitControls | null>(null);
   
   // Lights Refs
@@ -34,6 +37,13 @@ function App() {
   const guiRef = useRef<GUI | null>(null);
   const layersFolderRef = useRef<GUI | null>(null);
   const showEdgesRef = useRef(true);
+  const measureModeRef = useRef(false);
+  const measurementGroupRef = useRef<THREE.Group | null>(null);
+  const measurementStartRef = useRef<THREE.Vector3 | null>(null);
+  const measurementTempMarkerRef = useRef<THREE.Mesh | null>(null);
+  const measurePointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
+  const measureLineMaterialRef = useRef<THREE.LineBasicMaterial | null>(null);
+  const measurePointMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
   
   // UI State
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -59,6 +69,210 @@ function App() {
       }
   };
 
+  const isInMeasurements = (obj: THREE.Object3D) => {
+      let ptr: THREE.Object3D | null = obj;
+      while (ptr) {
+          if (ptr.name === 'Measurements') return true;
+          ptr = ptr.parent;
+      }
+      return false;
+  };
+
+  const clearMeasurements = () => {
+      const group = measurementGroupRef.current;
+      if (!group) return;
+
+      group.traverse((obj) => {
+          if (obj instanceof THREE.Sprite) {
+              const mat = obj.material;
+              if (mat instanceof THREE.SpriteMaterial) {
+                  if (mat.map) mat.map.dispose();
+                  mat.dispose();
+              }
+              return;
+          }
+
+          if (obj instanceof THREE.Line) {
+              obj.geometry.dispose();
+              const mat = obj.material;
+              if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+              else mat.dispose();
+              return;
+          }
+
+          if (obj instanceof THREE.Mesh) {
+              if (obj.geometry !== measurePointGeometryRef.current) obj.geometry.dispose();
+              const mat = obj.material;
+              if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+              else if (mat !== measurePointMaterialRef.current) mat.dispose();
+          }
+      });
+
+      while (group.children.length) group.remove(group.children[0]);
+
+      measurementStartRef.current = null;
+      if (measurementTempMarkerRef.current) {
+          measurementTempMarkerRef.current.parent?.remove(measurementTempMarkerRef.current);
+          measurementTempMarkerRef.current = null;
+      }
+  };
+
+  const createDistanceSprite = (text: string) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return new THREE.Sprite(new THREE.SpriteMaterial());
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+
+      const material = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthTest: false,
+          depthWrite: false
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.name = 'MeasurementLabel';
+      return sprite;
+  };
+
+  const addMeasurement = (start: THREE.Vector3, end: THREE.Vector3) => {
+      const group = measurementGroupRef.current;
+      const pointGeo = measurePointGeometryRef.current;
+      const pointMat = measurePointMaterialRef.current;
+      const lineMat = measureLineMaterialRef.current;
+      if (!group || !pointGeo || !pointMat || !lineMat) return;
+
+      const startPoint = new THREE.Mesh(pointGeo, pointMat);
+      startPoint.name = 'MeasurementPoint';
+      startPoint.position.copy(start);
+      startPoint.renderOrder = 9999;
+
+      const endPoint = new THREE.Mesh(pointGeo, pointMat);
+      endPoint.name = 'MeasurementPoint';
+      endPoint.position.copy(end);
+      endPoint.renderOrder = 9999;
+
+      const lineGeom = new THREE.BufferGeometry().setFromPoints([start, end]);
+      const line = new THREE.Line(lineGeom, lineMat);
+      line.name = 'MeasurementLine';
+      line.renderOrder = 9998;
+
+      const distance = start.distanceTo(end);
+      const label = createDistanceSprite(distance.toFixed(3));
+      const mid = start.clone().add(end).multiplyScalar(0.5);
+      label.position.copy(mid);
+
+      const scaleBase = Math.min(Math.max(distance * 0.08, 2), 50);
+      label.scale.set(scaleBase * 2.0, scaleBase * 0.5, 1);
+      label.renderOrder = 10000;
+
+      group.add(line);
+      group.add(startPoint);
+      group.add(endPoint);
+      group.add(label);
+  };
+
+  const handleMeasureClick = (event: MouseEvent, raycaster: THREE.Raycaster, mouse: THREE.Vector2) => {
+      const currentCamera = cameraRef.current;
+      const scene = sceneRef.current;
+      if (!currentCamera || !scene) return;
+
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, currentCamera);
+
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      const hit = intersects.find((h) => {
+          if (!(h.object instanceof THREE.Mesh)) return false;
+          if (h.object.name === 'Ground') return false;
+          if (h.object.name === 'HighlightLine') return false;
+          if (h.object.name === 'MeasurementPoint') return false;
+          if (h.object.name === 'MeasurementLine') return false;
+          if (h.object.name === 'MeasurementLabel') return false;
+          if (isInMeasurements(h.object)) return false;
+          return true;
+      });
+      if (!hit) return;
+
+      const picked = hit.point.clone();
+
+      if (event.shiftKey && hit.face && hit.object instanceof THREE.Mesh) {
+          const mesh = hit.object;
+          const geom = mesh.geometry;
+          if (geom instanceof THREE.BufferGeometry && geom.attributes.position) {
+              const posAttr = geom.attributes.position as THREE.BufferAttribute;
+              const a = hit.face.a;
+              const b = hit.face.b;
+              const c = hit.face.c;
+              const vA = new THREE.Vector3().fromBufferAttribute(posAttr, a).applyMatrix4(mesh.matrixWorld);
+              const vB = new THREE.Vector3().fromBufferAttribute(posAttr, b).applyMatrix4(mesh.matrixWorld);
+              const vC = new THREE.Vector3().fromBufferAttribute(posAttr, c).applyMatrix4(mesh.matrixWorld);
+
+              geom.computeBoundingSphere();
+              const sphereRadius = geom.boundingSphere ? geom.boundingSphere.radius : 1;
+              const worldScale = new THREE.Vector3();
+              mesh.getWorldScale(worldScale);
+              const snapDist = sphereRadius * Math.max(worldScale.x, worldScale.y, worldScale.z) * 0.02;
+
+              const dA = picked.distanceTo(vA);
+              const dB = picked.distanceTo(vB);
+              const dC = picked.distanceTo(vC);
+              let snapped = picked;
+              let minD = dA;
+              snapped = vA;
+              if (dB < minD) {
+                  minD = dB;
+                  snapped = vB;
+              }
+              if (dC < minD) {
+                  minD = dC;
+                  snapped = vC;
+              }
+              if (minD <= snapDist) picked.copy(snapped);
+          }
+      }
+
+      if (!measurementStartRef.current) {
+          measurementStartRef.current = picked.clone();
+          if (!measurementTempMarkerRef.current && measurePointGeometryRef.current) {
+              const tempMat = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false, depthWrite: false });
+              const temp = new THREE.Mesh(measurePointGeometryRef.current, tempMat);
+              temp.name = 'MeasurementTemp';
+              temp.renderOrder = 10001;
+              measurementTempMarkerRef.current = temp;
+              measurementGroupRef.current?.add(temp);
+          }
+          if (measurementTempMarkerRef.current) {
+              measurementTempMarkerRef.current.position.copy(picked);
+              measurementTempMarkerRef.current.visible = true;
+          }
+          return;
+      }
+
+      const start = measurementStartRef.current.clone();
+      const end = picked.clone();
+      addMeasurement(start, end);
+
+      measurementStartRef.current = null;
+      if (measurementTempMarkerRef.current) {
+          measurementTempMarkerRef.current.visible = false;
+      }
+  };
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -76,6 +290,18 @@ function App() {
     if (savedSettings.latitude !== undefined) setLatitude(savedSettings.latitude);
     if (savedSettings.longitude !== undefined) setLongitude(savedSettings.longitude);
     if (savedSettings.showEdges !== undefined) showEdgesRef.current = savedSettings.showEdges;
+    if (savedSettings.measureMode !== undefined) measureModeRef.current = savedSettings.measureMode;
+    if (savedSettings.month !== undefined || savedSettings.day !== undefined || savedSettings.hour !== undefined) {
+        const now = new Date();
+        const month = savedSettings.month !== undefined ? savedSettings.month : now.getMonth() + 1;
+        const day = savedSettings.day !== undefined ? savedSettings.day : now.getDate();
+        const hour = savedSettings.hour !== undefined ? savedSettings.hour : now.getHours() + now.getMinutes() / 60;
+        now.setMonth(month - 1);
+        now.setDate(day);
+        now.setHours(Math.floor(hour));
+        now.setMinutes((hour % 1) * 60);
+        setDate(now);
+    }
 
     // 1. Setup Scene
     const scene = new THREE.Scene();
@@ -83,9 +309,36 @@ function App() {
     sceneRef.current = scene;
 
     // 2. Setup Camera (Rhino style: Z-up, so place camera at some X,Y,Z)
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
-    camera.position.set(50, -50, 50); // Look from a corner
-    camera.lookAt(0, 0, 0);
+    const aspect = window.innerWidth / window.innerHeight;
+    const defaultTarget = new THREE.Vector3(0, 0, 0);
+    const defaultPosition = new THREE.Vector3(50, -50, 50);
+
+    const perspectiveCamera = new THREE.PerspectiveCamera(45, aspect, 0.1, 10000);
+    perspectiveCamera.position.copy(defaultPosition);
+    perspectiveCamera.lookAt(defaultTarget);
+    perspectiveCameraRef.current = perspectiveCamera;
+
+    const dist = defaultPosition.distanceTo(defaultTarget);
+    const fovRad = (perspectiveCamera.fov * Math.PI) / 180;
+    const orthoHeight = 2 * dist * Math.tan(fovRad / 2);
+    const orthoWidth = orthoHeight * aspect;
+    orthoFrustumHeightRef.current = orthoHeight;
+
+    const orthographicCamera = new THREE.OrthographicCamera(
+        -orthoWidth / 2,
+        orthoWidth / 2,
+        orthoHeight / 2,
+        -orthoHeight / 2,
+        0.1,
+        10000
+    );
+    orthographicCamera.position.copy(defaultPosition);
+    orthographicCamera.lookAt(defaultTarget);
+    orthographicCamera.up.copy(perspectiveCamera.up);
+    orthographicCameraRef.current = orthographicCamera;
+
+    const projection = savedSettings.projection === 'orthographic' ? 'orthographic' : 'perspective';
+    const camera = projection === 'orthographic' ? orthographicCamera : perspectiveCamera;
     cameraRef.current = camera;
 
     // 3. Setup Renderer
@@ -151,15 +404,85 @@ function App() {
     const axes = new THREE.AxesHelper(10);
     scene.add(axes);
 
+    const measurementGroup = new THREE.Group();
+    measurementGroup.name = 'Measurements';
+    scene.add(measurementGroup);
+    measurementGroupRef.current = measurementGroup;
+    measurePointGeometryRef.current = new THREE.SphereGeometry(0.2, 16, 16);
+    measureLineMaterialRef.current = new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
+    measurePointMaterialRef.current = new THREE.MeshBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
+
     // 7. Selection Box Setup
     const selectionBox = new SelectionBox(camera, scene);
     selectionBoxRef.current = selectionBox;
     // Helper removed, using custom div logic
 
+    const applyProjection = (type: 'perspective' | 'orthographic') => {
+        const currentCamera = cameraRef.current;
+        if (!currentCamera) return;
+
+        const target = controls.target.clone();
+        const position = currentCamera.position.clone();
+        const up = currentCamera.up.clone();
+        const aspect = window.innerWidth / window.innerHeight;
+
+        if (type === 'perspective') {
+            const cam = perspectiveCameraRef.current;
+            if (!cam) return;
+
+            cam.aspect = aspect;
+            cam.position.copy(position);
+            cam.up.copy(up);
+            cam.lookAt(target);
+            cam.updateProjectionMatrix();
+            cameraRef.current = cam;
+        } else {
+            const cam = orthographicCameraRef.current;
+            const perspectiveCam = perspectiveCameraRef.current;
+            if (!cam || !perspectiveCam) return;
+
+            const dist = position.distanceTo(target);
+            const fovRad = (perspectiveCam.fov * Math.PI) / 180;
+            const orthoHeight = 2 * dist * Math.tan(fovRad / 2);
+            const orthoWidth = orthoHeight * aspect;
+            orthoFrustumHeightRef.current = orthoHeight;
+
+            cam.left = -orthoWidth / 2;
+            cam.right = orthoWidth / 2;
+            cam.top = orthoHeight / 2;
+            cam.bottom = -orthoHeight / 2;
+            cam.position.copy(position);
+            cam.up.copy(up);
+            cam.lookAt(target);
+            cam.updateProjectionMatrix();
+            cameraRef.current = cam;
+        }
+
+        (controls as any).object = cameraRef.current;
+        controls.update();
+        if (selectionBoxRef.current) {
+            (selectionBoxRef.current as any).camera = cameraRef.current;
+        }
+    };
+
     // 8. Event Listeners for Interaction
     const handleResize = () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
+      const aspect = window.innerWidth / window.innerHeight;
+      const currentCamera = cameraRef.current;
+
+      if (currentCamera instanceof THREE.PerspectiveCamera) {
+          currentCamera.aspect = aspect;
+          currentCamera.updateProjectionMatrix();
+      } else if (currentCamera instanceof THREE.OrthographicCamera) {
+          const orthoHeight = orthoFrustumHeightRef.current;
+          const orthoWidth = orthoHeight * aspect;
+          currentCamera.left = -orthoWidth / 2;
+          currentCamera.right = orthoWidth / 2;
+          currentCamera.top = orthoHeight / 2;
+          currentCamera.bottom = -orthoHeight / 2;
+          currentCamera.updateProjectionMatrix();
+      }
+
       renderer.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener('resize', handleResize);
@@ -167,7 +490,7 @@ function App() {
     // Render Loop
     const animate = () => {
       requestAnimationFrame(animate);
-      renderer.render(scene, camera);
+      renderer.render(scene, cameraRef.current || camera);
     };
     animate();
 
@@ -179,7 +502,12 @@ function App() {
       ambientIntensity: savedSettings.ambientIntensity !== undefined ? savedSettings.ambientIntensity : 1.0,
       ambientColor: savedSettings.ambientColor || '#ffffff',
       shadows: savedSettings.shadows !== undefined ? savedSettings.shadows : true,
+      parallelProjection: projection === 'orthographic',
       showEdges: showEdgesRef.current,
+      measureMode: measureModeRef.current,
+      clearMeasurements: () => {
+          clearMeasurements();
+      },
       bgTop: savedSettings.bgTop || '#e0e0e0',
       bgBottom: savedSettings.bgBottom || '#ffffff',
       loadFile: () => {
@@ -192,6 +520,12 @@ function App() {
       if (dirLightRef.current) dirLightRef.current.intensity = v;
       saveSettings({ brightness: v });
       // setBrightness(v); // No longer needed as state if only used for this
+    });
+
+    gui.add(settings, 'parallelProjection').name('Parallel Projection').onChange((v: boolean) => {
+        const next = v ? 'orthographic' : 'perspective';
+        applyProjection(next);
+        saveSettings({ projection: next });
     });
 
     // Ambient Light Controls
@@ -266,6 +600,17 @@ function App() {
             });
         }
     });
+
+    const measureFolder = gui.addFolder('Measure');
+    measureFolder.add(settings, 'measureMode').name('Measure Distance').onChange((v: boolean) => {
+        measureModeRef.current = v;
+        saveSettings({ measureMode: v });
+        if (!v) {
+            measurementStartRef.current = null;
+            if (measurementTempMarkerRef.current) measurementTempMarkerRef.current.visible = false;
+        }
+    });
+    measureFolder.add(settings, 'clearMeasurements').name('Clear Measurements');
 
     gui.addColor(settings, 'bgTop').onChange((v: string) => {
         setBgTop(v);
@@ -464,18 +809,24 @@ function App() {
 
       // If moved significantly, it's a drag (Orbit), ignore.
       // We can check this by storing down position.
+      if (measureModeRef.current) {
+          handleMeasureClick(event, raycaster, mouse);
+          return;
+      }
       
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
       
-      raycaster.setFromCamera(mouse, cameraRef.current!);
+      if (!cameraRef.current) return;
+      raycaster.setFromCamera(mouse, cameraRef.current);
       // Intersect only our meshes
       if (!sceneRef.current) return;
       
       const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
       // Filter out helpers and Ground
       const validIntersects = intersects.filter(hit => {
-         return hit.object.type === 'Mesh' && 
+         return hit.object instanceof THREE.Mesh &&
+                !isInMeasurements(hit.object) &&
                 hit.object.name !== 'HighlightLine' &&
                 hit.object.name !== 'Ground';
       });
@@ -504,7 +855,7 @@ function App() {
   }, []);
 
   const handleSelection = (objects: THREE.Object3D[], shiftKey: boolean) => {
-    const validObjects = objects.filter(o => o.type === 'Mesh' && o.name !== 'HighlightLine' && o.name !== 'Ground');
+    const validObjects = objects.filter(o => o instanceof THREE.Mesh && !isInMeasurements(o) && o.name !== 'HighlightLine' && o.name !== 'Ground');
     const newSelection = shiftKey ? new Set(selectedObjectsRef.current) : new Set<string>();
 
     validObjects.forEach(obj => {
@@ -525,22 +876,44 @@ function App() {
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
-      
-      const fov = cameraRef.current.fov * (Math.PI / 180);
-      let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-      cameraZ *= 2.0; // Zoom out a bit
-      
-      const direction = new THREE.Vector3().subVectors(cameraRef.current.position, controlsRef.current.target).normalize();
+
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+
+      const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
       if (direction.lengthSq() < 0.001) direction.set(1, -1, 1).normalize();
-      
-      const newPos = center.clone().add(direction.multiplyScalar(cameraZ));
-      cameraRef.current.position.copy(newPos);
-      cameraRef.current.lookAt(center);
-      
-      // Adjust clipping planes
-      cameraRef.current.near = maxDim / 1000;
-      cameraRef.current.far = maxDim * 100;
-      cameraRef.current.updateProjectionMatrix();
+
+      if (camera instanceof THREE.PerspectiveCamera) {
+          const fov = (camera.fov * Math.PI) / 180;
+          let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+          cameraZ *= 2.0;
+          const newPos = center.clone().add(direction.multiplyScalar(cameraZ));
+          camera.position.copy(newPos);
+          camera.lookAt(center);
+
+          camera.near = maxDim / 1000;
+          camera.far = maxDim * 100;
+          camera.updateProjectionMatrix();
+      } else if (camera instanceof THREE.OrthographicCamera) {
+          const aspect = window.innerWidth / window.innerHeight;
+          const orthoHeight = Math.max(maxDim * 2.0, 1);
+          const orthoWidth = orthoHeight * aspect;
+          orthoFrustumHeightRef.current = orthoHeight;
+
+          camera.left = -orthoWidth / 2;
+          camera.right = orthoWidth / 2;
+          camera.top = orthoHeight / 2;
+          camera.bottom = -orthoHeight / 2;
+
+          const dist = maxDim * 2.0;
+          const newPos = center.clone().add(direction.multiplyScalar(dist));
+          camera.position.copy(newPos);
+          camera.lookAt(center);
+
+          camera.near = maxDim / 1000;
+          camera.far = maxDim * 100;
+          camera.updateProjectionMatrix();
+      }
       
       // Update Shadow Camera to cover model
       if (dirLightRef.current) {
@@ -694,6 +1067,7 @@ function App() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    clearMeasurements();
     
     // Clear previous model
     if (sceneRef.current) {
@@ -708,6 +1082,7 @@ function App() {
             if (child instanceof THREE.AxesHelper) return;
             if (child.name === 'selection-box') return; // SelectionHelper
             if (child.name === 'Ground') return; // Keep Ground
+            if (child.name === 'Measurements') return;
             if (child.type === 'Camera') return;
             
             // Assume everything else is part of the loaded model or its helpers
