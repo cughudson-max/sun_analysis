@@ -40,7 +40,54 @@ body {
   z-index: 2000;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+/* Toolbar Style */
+.toolbar {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  background-color: rgba(30, 30, 30, 0.8);
+  padding: 8px 16px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.toolbar-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  transition: all 0.2s ease;
+}
+
+.toolbar-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.toolbar-btn.active {
+  background-color: #4CAF50;
+  border-color: #4CAF50;
+  color: white;
+}
+
+.toolbar-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+/* Cursor Override */
+.cursor-crosshair {
+  cursor: crosshair !important;
 }

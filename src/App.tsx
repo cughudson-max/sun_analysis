@@ -41,6 +41,7 @@ function App() {
   const measurementGroupRef = useRef<THREE.Group | null>(null);
   const measurementStartRef = useRef<THREE.Vector3 | null>(null);
   const measurementTempMarkerRef = useRef<THREE.Mesh | null>(null);
+  const highlightPointRef = useRef<THREE.Mesh | null>(null); // For snap highlight
   const measurePointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
   const measureLineMaterialRef = useRef<THREE.LineBasicMaterial | null>(null);
   const measurePointMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
@@ -55,6 +56,9 @@ function App() {
   const [latitude, setLatitude] = useState(39.9); // Beijing
   const [longitude, setLongitude] = useState(116.4); // Beijing
   const [date, setDate] = useState(new Date());
+
+  const [isMeasureActive, setIsMeasureActive] = useState(false);
+  const [isOrtho, setIsOrtho] = useState(false);
 
   // Settings Storage Helper
   const SETTINGS_KEY = '3dm-viewer-settings';
@@ -183,15 +187,18 @@ function App() {
       group.add(startPoint);
       group.add(endPoint);
       group.add(label);
+      
+      // Exit measure mode after successful measurement
+      exitMeasureMode();
   };
 
-  const handleMeasureClick = (event: MouseEvent, raycaster: THREE.Raycaster, mouse: THREE.Vector2) => {
+  const getSnappedPoint = (clientX: number, clientY: number, raycaster: THREE.Raycaster, mouse: THREE.Vector2): THREE.Vector3 | null => {
       const currentCamera = cameraRef.current;
       const scene = sceneRef.current;
-      if (!currentCamera || !scene) return;
+      if (!currentCamera || !scene) return null;
 
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      mouse.x = (clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(clientY / window.innerHeight) * 2 + 1;
 
       raycaster.setFromCamera(mouse, currentCamera);
 
@@ -203,14 +210,18 @@ function App() {
           if (h.object.name === 'MeasurementPoint') return false;
           if (h.object.name === 'MeasurementLine') return false;
           if (h.object.name === 'MeasurementLabel') return false;
+          if (h.object.name === 'MeasurementTemp') return false;
+          if (h.object.name === 'HighlightPoint') return false;
           if (isInMeasurements(h.object)) return false;
           return true;
       });
-      if (!hit) return;
+      if (!hit) return null;
 
       const picked = hit.point.clone();
 
-      if (event.shiftKey && hit.face && hit.object instanceof THREE.Mesh) {
+      // Check for snap
+      // Always try to snap if close enough
+      if (hit.face && hit.object instanceof THREE.Mesh) {
           const mesh = hit.object;
           const geom = mesh.geometry;
           if (geom instanceof THREE.BufferGeometry && geom.attributes.position) {
@@ -226,7 +237,7 @@ function App() {
               const sphereRadius = geom.boundingSphere ? geom.boundingSphere.radius : 1;
               const worldScale = new THREE.Vector3();
               mesh.getWorldScale(worldScale);
-              const snapDist = sphereRadius * Math.max(worldScale.x, worldScale.y, worldScale.z) * 0.02;
+              const snapDist = sphereRadius * Math.max(worldScale.x, worldScale.y, worldScale.z) * 0.05; // 5% tolerance
 
               const dA = picked.distanceTo(vA);
               const dB = picked.distanceTo(vB);
@@ -242,9 +253,15 @@ function App() {
                   minD = dC;
                   snapped = vC;
               }
-              if (minD <= snapDist) picked.copy(snapped);
+              if (minD <= snapDist) return snapped;
           }
       }
+      return picked;
+  };
+
+  const handleMeasureClick = (event: MouseEvent, raycaster: THREE.Raycaster, mouse: THREE.Vector2) => {
+      const picked = getSnappedPoint(event.clientX, event.clientY, raycaster, mouse);
+      if (!picked) return;
 
       if (!measurementStartRef.current) {
           measurementStartRef.current = picked.clone();
@@ -273,6 +290,63 @@ function App() {
       }
   };
 
+  const enterMeasureMode = () => {
+      measureModeRef.current = true;
+      setIsMeasureActive(true);
+      document.body.classList.add('cursor-crosshair');
+      if (highlightPointRef.current) {
+          highlightPointRef.current.visible = false;
+      }
+  };
+
+  const exitMeasureMode = () => {
+      measureModeRef.current = false;
+      setIsMeasureActive(false);
+      measurementStartRef.current = null;
+      if (measurementTempMarkerRef.current) {
+          measurementTempMarkerRef.current.visible = false;
+      }
+      if (highlightPointRef.current) {
+          highlightPointRef.current.visible = false;
+      }
+      document.body.classList.remove('cursor-crosshair');
+  };
+  
+  // Projection Function (defined before useEffect so it can be used in both)
+  // But controls/camera refs need to be accessed inside.
+  // We can define it here but it relies on refs which are constant.
+  // Actually, we'll keep the logic inside useEffect or use a ref to function if needed.
+  // For button, we need a stable function.
+  
+  const toggleProjection = () => {
+      const next = isOrtho ? 'perspective' : 'orthographic';
+      applyProjectionGlobal(next);
+  };
+  
+  // Global reference to applyProjection for the button
+  const applyProjectionRef = useRef<((type: 'perspective' | 'orthographic') => void) | null>(null);
+  
+  const applyProjectionGlobal = (type: 'perspective' | 'orthographic') => {
+      if (applyProjectionRef.current) {
+          applyProjectionRef.current(type);
+          setIsOrtho(type === 'orthographic');
+          saveSettings({ projection: type });
+      }
+  };
+
+  // Keyboard Event Listener
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') {
+              if (measureModeRef.current) {
+                  exitMeasureMode();
+              }
+          }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []); // Empty deps, using refs
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -290,7 +364,11 @@ function App() {
     if (savedSettings.latitude !== undefined) setLatitude(savedSettings.latitude);
     if (savedSettings.longitude !== undefined) setLongitude(savedSettings.longitude);
     if (savedSettings.showEdges !== undefined) showEdgesRef.current = savedSettings.showEdges;
-    if (savedSettings.measureMode !== undefined) measureModeRef.current = savedSettings.measureMode;
+    // Don't auto-enter measure mode from settings, it's confusing
+    // if (savedSettings.measureMode !== undefined) measureModeRef.current = savedSettings.measureMode;
+    
+    if (savedSettings.projection === 'orthographic') setIsOrtho(true);
+
     if (savedSettings.month !== undefined || savedSettings.day !== undefined || savedSettings.hour !== undefined) {
         const now = new Date();
         const month = savedSettings.month !== undefined ? savedSettings.month : now.getMonth() + 1;
@@ -308,7 +386,7 @@ function App() {
     // scene.background = null; // Use CSS for gradient
     sceneRef.current = scene;
 
-    // 2. Setup Camera (Rhino style: Z-up, so place camera at some X,Y,Z)
+    // 2. Setup Camera
     const aspect = window.innerWidth / window.innerHeight;
     const defaultTarget = new THREE.Vector3(0, 0, 0);
     const defaultPosition = new THREE.Vector3(50, -50, 50);
@@ -345,12 +423,12 @@ function App() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.shadowMap.enabled = true; // Enable Shadows
+    renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // 4. Lights (Adjustable brightness)
+    // 4. Lights
     const savedBrightness = savedSettings.brightness !== undefined ? savedSettings.brightness : 0.5;
     const ambientLight = new THREE.AmbientLight(
         savedSettings.ambientColor || 0xffffff, 
@@ -363,33 +441,27 @@ function App() {
     dirLight.position.set(100, -100, 100);
     dirLight.castShadow = savedSettings.shadows !== undefined ? savedSettings.shadows : true;
     
-    // Improved Shadow Quality
     dirLight.shadow.mapSize.width = savedSettings.shadowQuality || 4096;
     dirLight.shadow.mapSize.height = savedSettings.shadowQuality || 4096;
     dirLight.shadow.bias = savedSettings.shadowBias !== undefined ? savedSettings.shadowBias : -0.00005; 
-    dirLight.shadow.normalBias = 0.02; // Helps with self-shadowing
+    dirLight.shadow.normalBias = 0.02;
     dirLight.shadow.radius = savedSettings.shadowRadius !== undefined ? savedSettings.shadowRadius : 1;
     
-    // Initial Shadow Camera (Will be updated on load)
     const d = 100;
     dirLight.shadow.camera.left = -d;
     dirLight.shadow.camera.right = d;
     dirLight.shadow.camera.top = d;
     dirLight.shadow.camera.bottom = -d;
     dirLight.shadow.camera.near = 0.1;
-    dirLight.shadow.camera.far = 10000; // Increased far plane
+    dirLight.shadow.camera.far = 10000;
 
     scene.add(dirLight);
-    scene.add(dirLight.target); // Important for target to work
+    scene.add(dirLight.target);
     dirLightRef.current = dirLight;
     
-    // Infinite Ground Plane - REMOVED, now dynamic
-    // groundRef is still used but initialized later
-
     // 5. Controls
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = false; // User asked "stop immediately", so damping false
-    // Map buttons: Left=Rotate, Middle=Pan
+    controls.enableDamping = false;
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.PAN,
@@ -397,9 +469,9 @@ function App() {
     };
     controlsRef.current = controls;
 
-    // 6. Helpers (Grid) - Optional but good for context
+    // 6. Helpers
     const grid = new THREE.GridHelper(100, 20);
-    grid.rotation.x = Math.PI / 2; // Rotate to lie on XY plane
+    grid.rotation.x = Math.PI / 2;
     scene.add(grid);
     const axes = new THREE.AxesHelper(10);
     scene.add(axes);
@@ -412,10 +484,19 @@ function App() {
     measureLineMaterialRef.current = new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
     measurePointMaterialRef.current = new THREE.MeshBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
 
+    // Highlight Point for Snapping
+    const highlightGeo = new THREE.SphereGeometry(0.3, 16, 16);
+    const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, depthTest: false, depthWrite: false, transparent: true, opacity: 0.8 });
+    const highlightPoint = new THREE.Mesh(highlightGeo, highlightMat);
+    highlightPoint.name = 'HighlightPoint';
+    highlightPoint.visible = false;
+    highlightPoint.renderOrder = 10002;
+    scene.add(highlightPoint);
+    highlightPointRef.current = highlightPoint;
+
     // 7. Selection Box Setup
     const selectionBox = new SelectionBox(camera, scene);
     selectionBoxRef.current = selectionBox;
-    // Helper removed, using custom div logic
 
     const applyProjection = (type: 'perspective' | 'orthographic') => {
         const currentCamera = cameraRef.current;
@@ -464,6 +545,9 @@ function App() {
             (selectionBoxRef.current as any).camera = cameraRef.current;
         }
     };
+    
+    // Assign to global ref
+    applyProjectionRef.current = applyProjection;
 
     // 8. Event Listeners for Interaction
     const handleResize = () => {
@@ -490,6 +574,57 @@ function App() {
     // Render Loop
     const animate = () => {
       requestAnimationFrame(animate);
+      
+      // Adaptive Scaling for Measurements
+      const currentCamera = cameraRef.current;
+      if (currentCamera && measurementGroupRef.current) {
+          // Calculate scale factor
+          let scaleFactor = 1;
+          const targetPos = controlsRef.current?.target || new THREE.Vector3();
+          
+          // Logic: We want the markers to be constant screen size.
+          // Screen size = WorldSize / Distance * ProjectionConstant
+          // So WorldSize = DesiredScreenSize * Distance / ProjectionConstant
+          
+          if (currentCamera instanceof THREE.PerspectiveCamera) {
+              // For perspective, size ~ distance
+              // We can just use the distance from camera to the object center (approx)
+              // Or better, distance to target (orbit center) as a uniform scale for simplicity
+              const dist = currentCamera.position.distanceTo(targetPos);
+              scaleFactor = dist * 0.05; // Adjust constant as needed
+          } else if (currentCamera instanceof THREE.OrthographicCamera) {
+              // For ortho, size ~ frustum height
+              scaleFactor = (currentCamera.top - currentCamera.bottom) * 0.05;
+          }
+          
+          // Apply to Highlight Point
+          if (highlightPointRef.current) {
+             highlightPointRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
+          }
+          
+          // Apply to Temp Marker
+          if (measurementTempMarkerRef.current) {
+              measurementTempMarkerRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
+          }
+          
+          // Apply to existing measurements
+          measurementGroupRef.current.children.forEach(child => {
+              if (child.name === 'MeasurementPoint') {
+                  child.scale.set(scaleFactor, scaleFactor, scaleFactor);
+              } else if (child.name === 'MeasurementLabel') {
+                  // Labels are sprites, they attenuate by default.
+                  // If we want to control them manually or ensure they match:
+                  // scaleFactor * BaseScale
+                  // But sprites usually handle themselves well if sizeAttenuation is true (default).
+                  // If user wants them "gradient" (scaling), default behavior is actually correct for "World Space" size.
+                  // But if they want "Constant Screen Size", then we need to scale them up as we zoom out.
+                  // The previous code had `label.scale.set` based on distance.
+                  // Let's enforce constant screen size logic:
+                  child.scale.set(scaleFactor * 2.0, scaleFactor * 0.5, 1);
+              }
+          });
+      }
+      
       renderer.render(scene, cameraRef.current || camera);
     };
     animate();
@@ -498,7 +633,7 @@ function App() {
     const gui = new GUI({ title: 'Settings' });
     guiRef.current = gui;
     const settings = {
-      brightness: savedBrightness, // Now mapped to Directional Light
+      brightness: savedBrightness,
       ambientIntensity: savedSettings.ambientIntensity !== undefined ? savedSettings.ambientIntensity : 1.0,
       ambientColor: savedSettings.ambientColor || '#ffffff',
       shadows: savedSettings.shadows !== undefined ? savedSettings.shadows : true,
@@ -515,20 +650,20 @@ function App() {
       }
     };
 
-    // Brightness -> Directional Light Intensity (0 - 20)
     gui.add(settings, 'brightness', 0, 20).name('Brightness (Sun)').onChange((v: number) => {
       if (dirLightRef.current) dirLightRef.current.intensity = v;
       saveSettings({ brightness: v });
-      // setBrightness(v); // No longer needed as state if only used for this
     });
 
+    // Removed Parallel Projection from GUI as requested
+    /*
     gui.add(settings, 'parallelProjection').name('Parallel Projection').onChange((v: boolean) => {
         const next = v ? 'orthographic' : 'perspective';
         applyProjection(next);
         saveSettings({ projection: next });
     });
+    */
 
-    // Ambient Light Controls
     const folderAmbient = gui.addFolder('Ambient Light');
     folderAmbient.add(settings, 'ambientIntensity', 0, 20).name('Intensity').onChange((v: number) => {
         if (ambientLightRef.current) ambientLightRef.current.intensity = v;
@@ -539,16 +674,12 @@ function App() {
         saveSettings({ ambientColor: v });
     });
 
-    // Shadow Switch
     const shadowFolder = gui.addFolder('Shadows');
     shadowFolder.add(settings, 'shadows').name('Enable Shadows').onChange((enabled: boolean) => {
         if (dirLightRef.current) dirLightRef.current.castShadow = enabled;
         saveSettings({ shadows: enabled });
-        
-        if (enabled) {
-            updateGround();
-        } else {
-            // Remove ground
+        if (enabled) updateGround();
+        else {
             if (groundRef.current) {
                 sceneRef.current?.remove(groundRef.current);
                 groundRef.current = null;
@@ -566,26 +697,21 @@ function App() {
         if (dirLightRef.current) {
             dirLightRef.current.shadow.mapSize.width = v;
             dirLightRef.current.shadow.mapSize.height = v;
-            // Force update by disposing the old map
             if (dirLightRef.current.shadow.map) {
                 dirLightRef.current.shadow.map.dispose();
-                dirLightRef.current.shadow.map = null; // Re-created automatically
+                dirLightRef.current.shadow.map = null;
             }
         }
         saveSettings({ shadowQuality: v });
     });
     
     shadowFolder.add(shadowParams, 'bias', -0.01, 0.01, 0.0001).name('Bias').onChange((v: number) => {
-        if (dirLightRef.current) {
-            dirLightRef.current.shadow.bias = v;
-        }
+        if (dirLightRef.current) dirLightRef.current.shadow.bias = v;
         saveSettings({ shadowBias: v });
     });
     
     shadowFolder.add(shadowParams, 'radius', 0, 10, 0.1).name('Blur Radius').onChange((v: number) => {
-        if (dirLightRef.current) {
-            dirLightRef.current.shadow.radius = v;
-        }
+        if (dirLightRef.current) dirLightRef.current.shadow.radius = v;
         saveSettings({ shadowRadius: v });
     });
 
@@ -602,6 +728,8 @@ function App() {
     });
 
     const measureFolder = gui.addFolder('Measure');
+    // Removed Measure Mode toggle from GUI as requested
+    /*
     measureFolder.add(settings, 'measureMode').name('Measure Distance').onChange((v: boolean) => {
         measureModeRef.current = v;
         saveSettings({ measureMode: v });
@@ -610,6 +738,7 @@ function App() {
             if (measurementTempMarkerRef.current) measurementTempMarkerRef.current.visible = false;
         }
     });
+    */
     measureFolder.add(settings, 'clearMeasurements').name('Clear Measurements');
 
     gui.addColor(settings, 'bgTop').onChange((v: string) => {
@@ -621,15 +750,12 @@ function App() {
         saveSettings({ bgBottom: v });
     });
     
-    // Ground Settings - REMOVED
-
-    // Location & Time Controls
     const folderLocation = gui.addFolder('Location & Time');
     
     const locSettings = {
         latitude: savedSettings.latitude !== undefined ? savedSettings.latitude : 39.9,
         longitude: savedSettings.longitude !== undefined ? savedSettings.longitude : 116.4,
-        dateString: new Date().toISOString().substring(0, 16) // YYYY-MM-DDTHH:mm
+        dateString: new Date().toISOString().substring(0, 16)
     };
     
     folderLocation.add(locSettings, 'latitude', -90, 90).name('Latitude').onChange((v: number) => {
@@ -641,10 +767,6 @@ function App() {
         saveSettings({ longitude: v });
     });
     
-    // Date/Time Control (String input for now, maybe custom slider later)
-     // Lil-gui doesn't have a date picker, so we use string or separate sliders.
-     // Let's use hour slider for easy day cycle.
-     
      const timeSettings = {
          hour: savedSettings.hour !== undefined ? savedSettings.hour : new Date().getHours() + new Date().getMinutes() / 60,
          month: savedSettings.month !== undefined ? savedSettings.month : new Date().getMonth() + 1,
@@ -654,7 +776,7 @@ function App() {
      const updateDate = () => {
          const now = new Date();
          now.setMonth(timeSettings.month - 1);
-         now.setDate(timeSettings.day); // Set day before time to avoid month rollover issues
+         now.setDate(timeSettings.day);
          now.setHours(Math.floor(timeSettings.hour));
          now.setMinutes((timeSettings.hour % 1) * 60);
          setDate(now);
@@ -695,7 +817,6 @@ function App() {
     let isSelecting = false;
 
     const onPointerDown = (event: PointerEvent) => {
-      // Middle Click Double Click Check
       if (event.button === 1) {
           const now = Date.now();
           if (now - lastMiddleClickTime.current < 300) {
@@ -704,13 +825,10 @@ function App() {
           lastMiddleClickTime.current = now;
       }
 
-      // Check for Ctrl key
       if (event.ctrlKey) {
         isSelecting = true;
-        // Disable orbit controls temporarily
         if (controlsRef.current) controlsRef.current.enabled = false;
         
-        // Show selection box
         if (selectionBoxDivRef.current) {
             selectionBoxDivRef.current.style.display = 'block';
             selectionBoxDivRef.current.style.left = `${event.clientX}px`;
@@ -728,21 +846,22 @@ function App() {
           );
         }
       } else {
-         // Record time for simple click check
          startMouseRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
       }
     };
 
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
     const onPointerMove = (event: PointerEvent) => {
+      // 1. Handle Selection Box
       if (isSelecting && selectionBoxRef.current) {
-        // Update selection box visual
         if (selectionBoxDivRef.current) {
             const currentX = event.clientX;
             const currentY = event.clientY;
             const startX = startMouseRef.current.x;
             const startY = startMouseRef.current.y;
             
-            // Calculate top-left and width/height
             const newLeft = Math.min(startX, currentX);
             const newTop = Math.min(startY, currentY);
             const newWidth = Math.abs(currentX - startX);
@@ -760,11 +879,21 @@ function App() {
           0.5
         );
       }
+      
+      // 2. Handle Measure Highlight (Snap)
+      if (measureModeRef.current) {
+          const snapped = getSnappedPoint(event.clientX, event.clientY, raycaster, mouse);
+          if (snapped && highlightPointRef.current) {
+              highlightPointRef.current.position.copy(snapped);
+              highlightPointRef.current.visible = true;
+          } else if (highlightPointRef.current) {
+              highlightPointRef.current.visible = false;
+          }
+      }
     };
 
     const onPointerUp = (event: PointerEvent) => {
       if (isSelecting && selectionBoxRef.current) {
-        // Hide selection box
         if (selectionBoxDivRef.current) {
             selectionBoxDivRef.current.style.display = 'none';
             selectionBoxDivRef.current.style.width = '0px';
@@ -782,33 +911,19 @@ function App() {
 
         isSelecting = false;
         if (controlsRef.current) controlsRef.current.enabled = true;
-      } else if (!event.ctrlKey && event.button === 0 && !controlsRef.current?.mouseButtons.LEFT /* Check if it was a click, not drag? */) {
-         // This logic is tricky. OrbitControls handles clicks. 
-         // We need a Raycaster for single click if it wasn't a drag.
-         // But let's rely on SelectionBox for click too (it works for single points essentially).
-         // Actually, Raycaster is better for single click.
       }
       
-      // Re-enable controls just in case
       if (controlsRef.current) controlsRef.current.enabled = true;
     };
 
-    // Separate Raycaster for simple click (without Ctrl)
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-    
     const onClick = (event: MouseEvent) => {
-      if (event.ctrlKey) return; // Handled by box selection
+      if (event.ctrlKey) return; 
       
-      // Check for long press (drag)
       const now = Date.now();
       if (now - startMouseRef.current.time > 300) {
-          // Long press detected, ignore selection
           return;
       }
 
-      // If moved significantly, it's a drag (Orbit), ignore.
-      // We can check this by storing down position.
       if (measureModeRef.current) {
           handleMeasureClick(event, raycaster, mouse);
           return;
@@ -819,22 +934,20 @@ function App() {
       
       if (!cameraRef.current) return;
       raycaster.setFromCamera(mouse, cameraRef.current);
-      // Intersect only our meshes
       if (!sceneRef.current) return;
       
       const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
-      // Filter out helpers and Ground
       const validIntersects = intersects.filter(hit => {
          return hit.object instanceof THREE.Mesh &&
                 !isInMeasurements(hit.object) &&
                 hit.object.name !== 'HighlightLine' &&
+                hit.object.name !== 'HighlightPoint' &&
                 hit.object.name !== 'Ground';
       });
 
       if (validIntersects.length > 0) {
         handleSelection([validIntersects[0].object], event.shiftKey);
       } else {
-        // Clicked on empty space -> Deselect all unless shift
         if (!event.shiftKey) {
            handleSelection([], false);
         }
@@ -855,14 +968,14 @@ function App() {
   }, []);
 
   const handleSelection = (objects: THREE.Object3D[], shiftKey: boolean) => {
-    const validObjects = objects.filter(o => o instanceof THREE.Mesh && !isInMeasurements(o) && o.name !== 'HighlightLine' && o.name !== 'Ground');
+    const validObjects = objects.filter(o => o instanceof THREE.Mesh && !isInMeasurements(o) && o.name !== 'HighlightLine' && o.name !== 'HighlightPoint' && o.name !== 'Ground');
     const newSelection = shiftKey ? new Set(selectedObjectsRef.current) : new Set<string>();
 
     validObjects.forEach(obj => {
       if (shiftKey && selectedObjectsRef.current.has(obj.uuid)) {
-        newSelection.delete(obj.uuid); // Toggle off
+        newSelection.delete(obj.uuid); 
       } else {
-        newSelection.add(obj.uuid); // Add
+        newSelection.add(obj.uuid);
       }
     });
 
@@ -915,9 +1028,8 @@ function App() {
           camera.updateProjectionMatrix();
       }
       
-      // Update Shadow Camera to cover model
       if (dirLightRef.current) {
-          const d = maxDim * 1.5; // Ensure it covers the model with some margin
+          const d = maxDim * 1.5;
           dirLightRef.current.shadow.camera.left = -d;
           dirLightRef.current.shadow.camera.right = d;
           dirLightRef.current.shadow.camera.top = d;
@@ -925,18 +1037,9 @@ function App() {
           dirLightRef.current.shadow.camera.far = Math.max(5000, maxDim * 10);
           dirLightRef.current.shadow.camera.updateProjectionMatrix();
           
-          // Move light target to center
           dirLightRef.current.target.position.copy(center);
           dirLightRef.current.target.updateMatrixWorld();
           
-          // Re-update sun position to respect new target
-          // The previous sun position was relative to (0,0,0). 
-          // If we move target, we should move position too to keep direction?
-          // Actually updateSunPosition sets absolute position.
-          // Direction is (Position - Target).
-          // If we want same direction, we should add Center to Position.
-          // But updateSunPosition is based on Earth coordinates, usually assuming origin is "Observer".
-          // If we treat "Observer" as the model center:
           updateSunPosition(latitude, longitude, date);
       }
       
@@ -963,49 +1066,38 @@ function App() {
   const updateGround = () => {
       if (!sceneRef.current) return;
       
-      // 1. Calculate Bounding Box of all Meshes (excluding helpers/ground)
       const box = new THREE.Box3();
       let hasObjects = false;
       
       sceneRef.current.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-              // Ignore helpers, existing ground, selection box
               if (child.name === 'Ground') return;
               if (child.name === 'selection-box') return;
               if (child.name === 'HighlightLine') return;
+              if (child.name === 'HighlightPoint') return;
               if (child instanceof THREE.GridHelper) return;
               if (child instanceof THREE.AxesHelper) return;
               
-              // Only consider loaded model parts
               box.expandByObject(child);
               hasObjects = true;
           }
       });
       
       if (!hasObjects) {
-          // If no objects, maybe just a default small ground or none
-          // Let's make a default one if empty so we have something
            const defaultSize = 1000;
            box.min.set(-defaultSize, -defaultSize, 0);
            box.max.set(defaultSize, defaultSize, 0);
       }
       
-      // 2. Create/Resize Ground
       const size = new THREE.Vector3();
       box.getSize(size);
-      const center = new THREE.Vector3();
-      box.getCenter(center);
       
-      // Make ground larger than the box to catch shadows
-      // Say 10x the max dimension
       const maxDim = Math.max(size.x, size.y);
-      const groundSize = Math.max(maxDim * 10, 10000); // Minimum 10000
+      const groundSize = Math.max(maxDim * 10, 10000);
       
-      // Remove old ground if exists
       if (groundRef.current) {
           sceneRef.current.remove(groundRef.current);
           if (groundRef.current.geometry) groundRef.current.geometry.dispose();
-          // Reuse material if possible, but creating new one is cheap enough
       }
       
       const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
@@ -1013,12 +1105,6 @@ function App() {
       const ground = new THREE.Mesh(groundGeometry, groundMaterial);
       ground.name = 'Ground';
       
-      // Position at Z=0 (Standard Ground)
-      // Or should it be at box.min.z? 
-      // User said "ShadowOnly Ground based on size". Usually ground is at 0.
-      // If model is floating, shadow falls on 0. 
-      // If model is below 0, shadow might be weird. 
-      // Let's stick to Z=0 as the "Floor".
       ground.position.set(0, 0, 0);
       ground.receiveShadow = true;
       
@@ -1029,32 +1115,26 @@ function App() {
   const updateHighlights = () => {
      if (!sceneRef.current) return;
      
-     // Remove old highlights
      const toRemove: THREE.Object3D[] = [];
      sceneRef.current.traverse(child => {
        if (child.name === 'HighlightLine') toRemove.push(child);
      });
      toRemove.forEach(child => child.parent?.remove(child));
 
-     // Add new highlights
      selectedObjectsRef.current.forEach(uuid => {
         const obj = sceneRef.current?.getObjectByProperty('uuid', uuid);
         if (obj && obj instanceof THREE.Mesh) {
-           // Create Highlight Edges
-           // Optimization: Check if obj already has geometry.
            const edges = new THREE.EdgesGeometry(obj.geometry);
            const material = new THREE.LineBasicMaterial({ 
              color: 0xffff00, 
              depthTest: false,
              depthWrite: false,
-             linewidth: 2 // Note: linewidth only works in WebGL2 on some browsers, mostly 1
+             linewidth: 2 
            });
            const line = new THREE.LineSegments(edges, material);
            line.name = 'HighlightLine';
-           line.renderOrder = 9999; // On top
+           line.renderOrder = 9999;
            
-           // Since we add line as a child of obj, it inherits obj's transform.
-           // We just need to ensure line has no additional transform.
            line.position.set(0, 0, 0);
            line.rotation.set(0, 0, 0);
            line.scale.set(1, 1, 1);
@@ -1069,35 +1149,28 @@ function App() {
     if (!file) return;
     clearMeasurements();
     
-    // Clear previous model
     if (sceneRef.current) {
-        // Remove objects that are NOT helpers or lights
-        // We can tag the loaded model with a name or type to easily remove it.
-        // Or simply remove all Meshes that are not helpers.
         const toRemove: THREE.Object3D[] = [];
         sceneRef.current.children.forEach(child => {
-            // Keep lights, camera helpers, grid, axes
             if (child instanceof THREE.Light) return;
             if (child instanceof THREE.GridHelper) return;
             if (child instanceof THREE.AxesHelper) return;
-            if (child.name === 'selection-box') return; // SelectionHelper
-            if (child.name === 'Ground') return; // Keep Ground
+            if (child.name === 'selection-box') return;
+            if (child.name === 'Ground') return;
             if (child.name === 'Measurements') return;
+            if (child.name === 'HighlightPoint') return;
             if (child.type === 'Camera') return;
             
-            // Assume everything else is part of the loaded model or its helpers
             toRemove.push(child);
         });
         
         toRemove.forEach(child => sceneRef.current?.remove(child));
-        
-        // Also clear selection
         selectedObjectsRef.current.clear();
         updateHighlights();
     }
 
     const loader = new Rhino3dmLoader();
-    loader.setLibraryPath('/'); // Public folder
+    loader.setLibraryPath('/');
     
     const url = URL.createObjectURL(file);
     
@@ -1105,101 +1178,55 @@ function App() {
       setIsLoading(false);
       setLoadingProgress(100);
       
-      // Process object
-      console.log('Model loaded:', object);
-
-      // 1. Traverse and Add Edges (Sketchup Style)
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-           console.log('Processing mesh:', child.name || child.uuid);
-           
-           // Enable Shadows
            child.castShadow = true;
            child.receiveShadow = true;
 
-           // Debug Logging for UserData
-           if (child.userData) {
-               try {
-                   console.log('UserData keys:', Object.keys(child.userData));
-                   if (child.userData.attributes) {
-                       console.log('Attributes:', child.userData.attributes);
-                       if (child.userData.attributes.drawColor) {
-                           console.log('DrawColor found in attributes:', child.userData.attributes.drawColor);
-                       }
-                   }
-               } catch (e) {
-                   console.error('Error logging userData:', e);
-               }
-           }
-
-           // Create Black Edges
            const edges = new THREE.EdgesGeometry(child.geometry);
            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
            line.name = 'SurfaceEdge';
            line.visible = showEdgesRef.current;
            child.add(line);
            
-           // Ensure material exists
            if (!child.material) {
              child.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
            }
 
-           // Handle Array Materials and Clone to avoid side-effects
            const materials = Array.isArray(child.material) ? child.material : [child.material];
-           // Clone materials so we can modify them individually without affecting shared materials
            const clonedMaterials = materials.map(m => m.clone());
            child.material = Array.isArray(child.material) ? clonedMaterials : clonedMaterials[0];
            
-           // Attempt to find the correct display color
            let drawColor = null;
            
-           // Strategy 1: Check child.userData.attributes.drawColor (Standard Rhino3dmLoader)
            if (child.userData?.attributes?.drawColor) {
                drawColor = child.userData.attributes.drawColor;
            } 
-           // Strategy 2: Check child.userData.drawColor (Direct)
            else if (child.userData?.drawColor) {
                drawColor = child.userData.drawColor;
            }
-           // Strategy 3: Check Parent's attributes (e.g. if child is part of an Instance/Block)
            else if (child.parent && child.parent.type !== 'Scene' && child.parent.userData?.attributes?.drawColor) {
                drawColor = child.parent.userData.attributes.drawColor;
-               console.log('Found drawColor in parent:', drawColor);
            }
 
            clonedMaterials.forEach(mat => {
-               // We only modify materials that support color
                if (mat.color) {
                    if (drawColor) {
-                       // Apply drawColor
                        if (typeof drawColor === 'object' && 'r' in drawColor) {
-                           // User Request: If drawColor is black, set to white for better visibility
                            if (drawColor.r === 0 && drawColor.g === 0 && drawColor.b === 0) {
-                               console.log('DrawColor is black, forcing white as requested');
                                mat.color.setHex(0xffffff);
                            } else {
-                               // Rhino colors are 0-255
                                mat.color.setRGB(drawColor.r / 255.0, drawColor.g / 255.0, drawColor.b / 255.0);
                            }
-                           console.log('Applied drawColor (RGB):', mat.color);
                        } else if (typeof drawColor === 'number') {
-                           // Integer color
                            if (drawColor === 0) {
-                               console.log('DrawColor is black (0), forcing white as requested');
                                mat.color.setHex(0xffffff);
                            } else {
                                mat.color.setHex(drawColor);
                            }
-                           console.log('Applied drawColor (Hex):', mat.color);
                        }
                    } else {
-                       // No drawColor found.
-                       // If material is pure black (0x000000), it might be uninitialized or default.
-                       // We force it to white for better visibility in the viewer, 
-                       // unless the user really wanted black (which is hard to distinguish from uninitialized).
-                       // For now, if it's black, we make it white.
                        if (mat.color.getHex() === 0x000000) {
-                          console.log('Material is black and no drawColor found, defaulting to white');
                           mat.color.setHex(0xffffff);
                        }
                    }
@@ -1210,26 +1237,20 @@ function App() {
       
       sceneRef.current?.add(object);
 
-      // --- Handle Layers ---
       if (guiRef.current) {
-          // Destroy old layers folder if exists
           if (layersFolderRef.current) {
               layersFolderRef.current.destroy();
               layersFolderRef.current = null;
           }
           
-          // Create new layers folder
           const layersFolder = guiRef.current.addFolder('Layers');
           layersFolderRef.current = layersFolder;
           
-          // Get Layers from userData
           const layers = object.userData.layers;
-          console.log('3DM Layers Info:', layers); // Log layers info
           
           if (layers && Array.isArray(layers)) {
-              // 1. Build Layer Tree
                interface LayerNode {
-                   id: string; // UUID or index
+                   id: string;
                    layerIndex: number;
                    name: string;
                    visible: boolean;
@@ -1241,13 +1262,10 @@ function App() {
                const rootLayers: LayerNode[] = [];
                const layerState: Record<string, boolean> = {};
  
-               // First pass: Create nodes and map
                layers.forEach((layer: any) => {
                    const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
-                   const layerId = layer.id; // Usually UUID
+                   const layerId = layer.id;
                    const parentLayerId = layer.parentLayerId;
-                   
-                   // Default visibility: true unless explicitly false
                    const isVisible = layer.visible !== false;
                    
                    const node: LayerNode = {
@@ -1260,16 +1278,11 @@ function App() {
                    };
                    
                    layerMap.set(layerId, node);
-                   
-                   // Initialize state for GUI
-                   const key = `layer_${layerIndex}`;
-                   layerState[key] = isVisible;
+                   layerState[`layer_${layerIndex}`] = isVisible;
                });
  
-               // Second pass: Build hierarchy
                layerMap.forEach((node) => {
                    const parentLayerId = node.parentLayerId;
-                   // Check if parent exists and is not a nil UUID (0000...)
                    const isRoot = !parentLayerId || parentLayerId === '00000000-0000-0000-0000-000000000000';
                    
                    if (isRoot) {
@@ -1279,13 +1292,11 @@ function App() {
                        if (parent) {
                            parent.children.push(node);
                        } else {
-                           // Parent not found, treat as root
                            rootLayers.push(node);
                        }
                    }
                });
  
-               // Recursive function to set visibility for a hierarchy branch
                const setLayerHierarchyVisibility = (node: LayerNode, visible: boolean) => {
                    const key = `layer_${node.layerIndex}`;
                    layerState[key] = visible;
@@ -1297,17 +1308,14 @@ function App() {
                    }
                };
 
-               // Recursive function to update visibility based on hierarchy
                const updateSceneVisibility = () => {
                    object.traverse((child) => {
                        if (child.userData?.attributes?.layerIndex !== undefined) {
                            const layerIndex = child.userData.attributes.layerIndex;
                            const key = `layer_${layerIndex}`;
                            
-                           // Find the layer node to check hierarchy
                           let isVisible = layerState[key] !== undefined ? layerState[key] : true;
                           
-                          // Check ancestors
                            let currentNode: LayerNode | undefined;
                            for (const node of layerMap.values()) {
                                if (node.layerIndex === layerIndex) {
@@ -1325,7 +1333,6 @@ function App() {
                                        break;
                                    }
                                    
-                                   // Move up
                                    if (ptr.parentLayerId && ptr.parentLayerId !== '00000000-0000-0000-0000-000000000000') {
                                        ptr = layerMap.get(ptr.parentLayerId);
                                    } else {
@@ -1339,29 +1346,23 @@ function App() {
                    });
                };
 
-              // Recursive function to create GUI folders
               const createLayerGUI = (nodes: LayerNode[], parentFolder: GUI) => {
                   nodes.forEach(node => {
                       const key = `layer_${node.layerIndex}`;
                       
                       if (node.children.length > 0) {
-                          // Create a folder for this layer
                           const folder = parentFolder.addFolder(`📁 ${node.name}`);
                           
-                          // Add toggle for the layer itself
                           folder.add(layerState, key)
                               .name(`👁️ ${node.name}`)
-                              .listen() // Update UI if value changes programmatically
+                              .listen()
                               .onChange((v: boolean) => {
-                                  // Update all children states recursively
                                   setLayerHierarchyVisibility(node, v);
                                   updateSceneVisibility();
                               });
                           
-                          // Recursively add children
                           createLayerGUI(node.children, folder);
                       } else {
-                          // Leaf node
                           parentFolder.add(layerState, key)
                               .name(`🔹 ${node.name}`)
                               .listen()
@@ -1372,14 +1373,10 @@ function App() {
                   });
               };
 
-              // Initial Scene Update
               updateSceneVisibility();
-
-              // Create GUI
               createLayerGUI(rootLayers, layersFolder);
               
           } else {
-             // Fallback: Scan objects for unique layer indices if userData.layers is missing
              const foundLayers = new Set<number>();
              object.traverse(child => {
                  if (child.userData?.attributes?.layerIndex !== undefined) {
@@ -1406,17 +1403,14 @@ function App() {
           }
       }
 
-      // Update Ground if shadows are enabled
       if (dirLightRef.current?.castShadow) {
           updateGround();
       }
       
-      // Fix 1: Zoom Extents & Adjust Clipping Planes
       const box = new THREE.Box3().setFromObject(object);
       zoomToBox(box);
 
     }, (xhr) => {
-        // Progress
         if (xhr.lengthComputable) {
             const percentComplete = (xhr.loaded / xhr.total) * 100;
             setLoadingProgress(Math.round(percentComplete));
@@ -1432,27 +1426,13 @@ function App() {
       if (!dirLightRef.current) return;
       
       const times = SunCalc.getPosition(dateVal, lat, lon);
-      
       const phi = times.altitude;
       const theta = times.azimuth; 
-      
-      // Conversion depends on coordinate system.
-      // Standard Mapping for Z-up Architecture:
-      // +X = East, +Y = North.
-      // SunCalc Azimuth: 0 = South (-Y), -PI/2 = East (+X), PI/2 = West (-X), PI = North (+Y).
-      
       const r = 1000;
       
       const x = r * Math.cos(phi) * -Math.sin(theta);
       const y = r * Math.cos(phi) * -Math.cos(theta);
       const z = r * Math.sin(phi);
-      
-      // If we have a target (center of model), we should position light relative to it?
-      // Or just set position far away?
-      // DirectionalLight uses position and target to determine direction.
-      // Direction = Target - Position.
-      // We want Light -> Target to be the Sun direction.
-      // So Position should be Target + SunVector.
       
       if (dirLightRef.current.target) {
           const targetPos = dirLightRef.current.target.position;
@@ -1468,7 +1448,6 @@ function App() {
       dirLightRef.current.updateMatrixWorld();
   };
   
-  // Update sun when params change
   useEffect(() => {
       updateSunPosition(latitude, longitude, date);
   }, [latitude, longitude, date]);
@@ -1485,6 +1464,28 @@ function App() {
       {isLoading && <div className="loader" title={`Loading: ${loadingProgress}%`}></div>}
       
       <ViewCube controlsRef={controlsRef} cameraRef={cameraRef} />
+      
+      <div className="toolbar">
+          <button 
+              className={`toolbar-btn ${isMeasureActive ? 'active' : ''}`}
+              onClick={isMeasureActive ? exitMeasureMode : enterMeasureMode}
+              title="Measure Distance (M)"
+          >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21 16-4 4-5-5 4-4 5 5z"/><path d="m5 16 16-16"/><path d="m11 21-8-8"/><path d="m5 16-3 3 6 6 3-3"/></svg>
+          </button>
+          
+          <button 
+              className={`toolbar-btn ${isOrtho ? 'active' : ''}`}
+              onClick={toggleProjection}
+              title="Toggle Projection (Perspective/Parallel)"
+          >
+              {isOrtho ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16"/><path d="M4 16h16"/><path d="M4 4h16"/><path d="M4 20h16"/></svg>
+              ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a9 9 0 0 0-9 9 9 9 0 0 0 9 9 9 9 0 0 0 9-9 9 9 0 0 0-9-9z"/><path d="M3 12h18"/><path d="M12 3v18"/><path d="M16.5 7.5l-9 9"/><path d="M7.5 7.5l9 9"/></svg>
+              )}
+          </button>
+      </div>
       
       <div ref={selectionBoxDivRef} className="selection-box"></div>
       <input 
