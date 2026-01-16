@@ -5,6 +5,7 @@ import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import { SelectionBox } from 'three/examples/jsm/interactive/SelectionBox.js';
 import GUI from 'lil-gui';
 import SunCalc from 'suncalc';
+import ViewCube from './components/ViewCube';
 import './index.css';
 
 // Set Z-Up as requested
@@ -32,11 +33,11 @@ function App() {
   // GUI Refs
   const guiRef = useRef<GUI | null>(null);
   const layersFolderRef = useRef<GUI | null>(null);
+  const showEdgesRef = useRef(true);
   
   // UI State
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [, setBrightness] = useState(1.0);
   const [bgTop, setBgTop] = useState('#e0e0e0');
   const [bgBottom, setBgBottom] = useState('#ffffff');
   
@@ -45,8 +46,36 @@ function App() {
   const [longitude, setLongitude] = useState(116.4); // Beijing
   const [date, setDate] = useState(new Date());
 
+  // Settings Storage Helper
+  const SETTINGS_KEY = '3dm-viewer-settings';
+
+  const saveSettings = (newSettings: any) => {
+      try {
+          const current = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+          const updated = { ...current, ...newSettings };
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+      } catch (e) {
+          console.error('Failed to save settings', e);
+      }
+  };
+
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Load Settings
+    let savedSettings: any = {};
+    try {
+        savedSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    } catch (e) {
+        console.error('Failed to load settings', e);
+    }
+
+    // Apply Saved State Initializers
+    if (savedSettings.bgTop) setBgTop(savedSettings.bgTop);
+    if (savedSettings.bgBottom) setBgBottom(savedSettings.bgBottom);
+    if (savedSettings.latitude !== undefined) setLatitude(savedSettings.latitude);
+    if (savedSettings.longitude !== undefined) setLongitude(savedSettings.longitude);
+    if (savedSettings.showEdges !== undefined) showEdgesRef.current = savedSettings.showEdges;
 
     // 1. Setup Scene
     const scene = new THREE.Scene();
@@ -69,19 +98,24 @@ function App() {
     rendererRef.current = renderer;
 
     // 4. Lights (Adjustable brightness)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+    const savedBrightness = savedSettings.brightness !== undefined ? savedSettings.brightness : 0.5;
+    const ambientLight = new THREE.AmbientLight(
+        savedSettings.ambientColor || 0xffffff, 
+        savedSettings.ambientIntensity !== undefined ? savedSettings.ambientIntensity : 1.0
+    );
     scene.add(ambientLight);
     ambientLightRef.current = ambientLight;
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    const dirLight = new THREE.DirectionalLight(0xffffff, savedBrightness);
     dirLight.position.set(100, -100, 100);
-    dirLight.castShadow = true;
+    dirLight.castShadow = savedSettings.shadows !== undefined ? savedSettings.shadows : true;
     
     // Improved Shadow Quality
-    dirLight.shadow.mapSize.width = 4096;
-    dirLight.shadow.mapSize.height = 4096;
-    dirLight.shadow.bias = -0.00005; // Tuned for artifacts
+    dirLight.shadow.mapSize.width = savedSettings.shadowQuality || 4096;
+    dirLight.shadow.mapSize.height = savedSettings.shadowQuality || 4096;
+    dirLight.shadow.bias = savedSettings.shadowBias !== undefined ? savedSettings.shadowBias : -0.00005; 
     dirLight.shadow.normalBias = 0.02; // Helps with self-shadowing
+    dirLight.shadow.radius = savedSettings.shadowRadius !== undefined ? savedSettings.shadowRadius : 1;
     
     // Initial Shadow Camera (Will be updated on load)
     const d = 100;
@@ -141,12 +175,13 @@ function App() {
     const gui = new GUI({ title: 'Settings' });
     guiRef.current = gui;
     const settings = {
-      brightness: 0.5, // Now mapped to Directional Light
-      ambientIntensity: 1.0,
-      ambientColor: '#ffffff',
-      shadows: true,
-      bgTop: '#e0e0e0',
-      bgBottom: '#ffffff',
+      brightness: savedBrightness, // Now mapped to Directional Light
+      ambientIntensity: savedSettings.ambientIntensity !== undefined ? savedSettings.ambientIntensity : 1.0,
+      ambientColor: savedSettings.ambientColor || '#ffffff',
+      shadows: savedSettings.shadows !== undefined ? savedSettings.shadows : true,
+      showEdges: showEdgesRef.current,
+      bgTop: savedSettings.bgTop || '#e0e0e0',
+      bgBottom: savedSettings.bgBottom || '#ffffff',
       loadFile: () => {
         document.getElementById('file-input')?.click();
       }
@@ -155,6 +190,7 @@ function App() {
     // Brightness -> Directional Light Intensity (0 - 20)
     gui.add(settings, 'brightness', 0, 20).name('Brightness (Sun)').onChange((v: number) => {
       if (dirLightRef.current) dirLightRef.current.intensity = v;
+      saveSettings({ brightness: v });
       // setBrightness(v); // No longer needed as state if only used for this
     });
 
@@ -162,15 +198,18 @@ function App() {
     const folderAmbient = gui.addFolder('Ambient Light');
     folderAmbient.add(settings, 'ambientIntensity', 0, 20).name('Intensity').onChange((v: number) => {
         if (ambientLightRef.current) ambientLightRef.current.intensity = v;
+        saveSettings({ ambientIntensity: v });
     });
     folderAmbient.addColor(settings, 'ambientColor').name('Color').onChange((v: string) => {
         if (ambientLightRef.current) ambientLightRef.current.color.set(v);
+        saveSettings({ ambientColor: v });
     });
 
     // Shadow Switch
     const shadowFolder = gui.addFolder('Shadows');
     shadowFolder.add(settings, 'shadows').name('Enable Shadows').onChange((enabled: boolean) => {
         if (dirLightRef.current) dirLightRef.current.castShadow = enabled;
+        saveSettings({ shadows: enabled });
         
         if (enabled) {
             updateGround();
@@ -184,9 +223,9 @@ function App() {
     });
 
     const shadowParams = {
-        shadowQuality: 4096,
-        bias: -0.0001,
-        radius: 1
+        shadowQuality: savedSettings.shadowQuality || 4096,
+        bias: savedSettings.shadowBias !== undefined ? savedSettings.shadowBias : -0.0001,
+        radius: savedSettings.shadowRadius !== undefined ? savedSettings.shadowRadius : 1
     };
 
     shadowFolder.add(shadowParams, 'shadowQuality', 1024, 8192, 1024).name('Shadow Map Size').onChange((v: number) => {
@@ -199,22 +238,43 @@ function App() {
                 dirLightRef.current.shadow.map = null; // Re-created automatically
             }
         }
+        saveSettings({ shadowQuality: v });
     });
     
     shadowFolder.add(shadowParams, 'bias', -0.01, 0.01, 0.0001).name('Bias').onChange((v: number) => {
         if (dirLightRef.current) {
             dirLightRef.current.shadow.bias = v;
         }
+        saveSettings({ shadowBias: v });
     });
     
     shadowFolder.add(shadowParams, 'radius', 0, 10, 0.1).name('Blur Radius').onChange((v: number) => {
         if (dirLightRef.current) {
             dirLightRef.current.shadow.radius = v;
         }
+        saveSettings({ shadowRadius: v });
     });
 
-    gui.addColor(settings, 'bgTop').onChange((v: string) => setBgTop(v));
-    gui.addColor(settings, 'bgBottom').onChange((v: string) => setBgBottom(v));
+    gui.add(settings, 'showEdges').name('Show Surface Curves').onChange((v: boolean) => {
+        showEdgesRef.current = v;
+        saveSettings({ showEdges: v });
+        if (sceneRef.current) {
+            sceneRef.current.traverse((child) => {
+                if (child.name === 'SurfaceEdge') {
+                    child.visible = v;
+                }
+            });
+        }
+    });
+
+    gui.addColor(settings, 'bgTop').onChange((v: string) => {
+        setBgTop(v);
+        saveSettings({ bgTop: v });
+    });
+    gui.addColor(settings, 'bgBottom').onChange((v: string) => {
+        setBgBottom(v);
+        saveSettings({ bgBottom: v });
+    });
     
     // Ground Settings - REMOVED
 
@@ -222,16 +282,18 @@ function App() {
     const folderLocation = gui.addFolder('Location & Time');
     
     const locSettings = {
-        latitude: 39.9,
-        longitude: 116.4,
+        latitude: savedSettings.latitude !== undefined ? savedSettings.latitude : 39.9,
+        longitude: savedSettings.longitude !== undefined ? savedSettings.longitude : 116.4,
         dateString: new Date().toISOString().substring(0, 16) // YYYY-MM-DDTHH:mm
     };
     
     folderLocation.add(locSettings, 'latitude', -90, 90).name('Latitude').onChange((v: number) => {
         setLatitude(v);
+        saveSettings({ latitude: v });
     });
     folderLocation.add(locSettings, 'longitude', -180, 180).name('Longitude').onChange((v: number) => {
         setLongitude(v);
+        saveSettings({ longitude: v });
     });
     
     // Date/Time Control (String input for now, maybe custom slider later)
@@ -239,9 +301,9 @@ function App() {
      // Let's use hour slider for easy day cycle.
      
      const timeSettings = {
-         hour: new Date().getHours() + new Date().getMinutes() / 60,
-         month: new Date().getMonth() + 1,
-         day: new Date().getDate()
+         hour: savedSettings.hour !== undefined ? savedSettings.hour : new Date().getHours() + new Date().getMinutes() / 60,
+         month: savedSettings.month !== undefined ? savedSettings.month : new Date().getMonth() + 1,
+         day: savedSettings.day !== undefined ? savedSettings.day : new Date().getDate()
      };
 
      const updateDate = () => {
@@ -251,6 +313,12 @@ function App() {
          now.setHours(Math.floor(timeSettings.hour));
          now.setMinutes((timeSettings.hour % 1) * 60);
          setDate(now);
+         
+         saveSettings({
+             month: timeSettings.month,
+             day: timeSettings.day,
+             hour: timeSettings.hour
+         });
      };
      
      folderLocation.add(timeSettings, 'month', 1, 12, 1).name('Month').onChange(updateDate);
@@ -692,6 +760,8 @@ function App() {
            // Create Black Edges
            const edges = new THREE.EdgesGeometry(child.geometry);
            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+           line.name = 'SurfaceEdge';
+           line.visible = showEdgesRef.current;
            child.add(line);
            
            // Ensure material exists
@@ -1038,6 +1108,9 @@ function App() {
       }}
     >
       {isLoading && <div className="loader" title={`Loading: ${loadingProgress}%`}></div>}
+      
+      <ViewCube controlsRef={controlsRef} cameraRef={cameraRef} />
+      
       <div ref={selectionBoxDivRef} className="selection-box"></div>
       <input 
         type="file" 
