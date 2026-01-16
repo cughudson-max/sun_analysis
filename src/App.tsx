@@ -29,6 +29,10 @@ function App() {
   const selectedObjectsRef = useRef<Set<string>>(new Set()); // Store UUIDs
   const lastMiddleClickTime = useRef<number>(0);
   
+  // GUI Refs
+  const guiRef = useRef<GUI | null>(null);
+  const layersFolderRef = useRef<GUI | null>(null);
+  
   // UI State
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -135,6 +139,7 @@ function App() {
 
     // 9. UI (lil-gui)
     const gui = new GUI({ title: 'Settings' });
+    guiRef.current = gui;
     const settings = {
       brightness: 0.5, // Now mapped to Directional Light
       ambientIntensity: 1.0,
@@ -147,15 +152,15 @@ function App() {
       }
     };
 
-    // Brightness -> Directional Light Intensity (0 - 10)
-    gui.add(settings, 'brightness', 0, 10).name('Brightness (Sun)').onChange((v: number) => {
+    // Brightness -> Directional Light Intensity (0 - 20)
+    gui.add(settings, 'brightness', 0, 20).name('Brightness (Sun)').onChange((v: number) => {
       if (dirLightRef.current) dirLightRef.current.intensity = v;
       // setBrightness(v); // No longer needed as state if only used for this
     });
 
     // Ambient Light Controls
     const folderAmbient = gui.addFolder('Ambient Light');
-    folderAmbient.add(settings, 'ambientIntensity', 0, 2).name('Intensity').onChange((v: number) => {
+    folderAmbient.add(settings, 'ambientIntensity', 0, 20).name('Intensity').onChange((v: number) => {
         if (ambientLightRef.current) ambientLightRef.current.intensity = v;
     });
     folderAmbient.addColor(settings, 'ambientColor').name('Color').onChange((v: string) => {
@@ -163,7 +168,8 @@ function App() {
     });
 
     // Shadow Switch
-    gui.add(settings, 'shadows').name('Shadows').onChange((enabled: boolean) => {
+    const shadowFolder = gui.addFolder('Shadows');
+    shadowFolder.add(settings, 'shadows').name('Enable Shadows').onChange((enabled: boolean) => {
         if (dirLightRef.current) dirLightRef.current.castShadow = enabled;
         
         if (enabled) {
@@ -174,6 +180,36 @@ function App() {
                 sceneRef.current?.remove(groundRef.current);
                 groundRef.current = null;
             }
+        }
+    });
+
+    const shadowParams = {
+        shadowQuality: 4096,
+        bias: -0.0001,
+        radius: 1
+    };
+
+    shadowFolder.add(shadowParams, 'shadowQuality', 1024, 8192, 1024).name('Shadow Map Size').onChange((v: number) => {
+        if (dirLightRef.current) {
+            dirLightRef.current.shadow.mapSize.width = v;
+            dirLightRef.current.shadow.mapSize.height = v;
+            // Force update by disposing the old map
+            if (dirLightRef.current.shadow.map) {
+                dirLightRef.current.shadow.map.dispose();
+                dirLightRef.current.shadow.map = null; // Re-created automatically
+            }
+        }
+    });
+    
+    shadowFolder.add(shadowParams, 'bias', -0.01, 0.01, 0.0001).name('Bias').onChange((v: number) => {
+        if (dirLightRef.current) {
+            dirLightRef.current.shadow.bias = v;
+        }
+    });
+    
+    shadowFolder.add(shadowParams, 'radius', 0, 10, 0.1).name('Blur Radius').onChange((v: number) => {
+        if (dirLightRef.current) {
+            dirLightRef.current.shadow.radius = v;
         }
     });
 
@@ -204,18 +240,21 @@ function App() {
      
      const timeSettings = {
          hour: new Date().getHours() + new Date().getMinutes() / 60,
-         month: new Date().getMonth() + 1
+         month: new Date().getMonth() + 1,
+         day: new Date().getDate()
      };
 
      const updateDate = () => {
          const now = new Date();
          now.setMonth(timeSettings.month - 1);
+         now.setDate(timeSettings.day); // Set day before time to avoid month rollover issues
          now.setHours(Math.floor(timeSettings.hour));
          now.setMinutes((timeSettings.hour % 1) * 60);
          setDate(now);
      };
      
      folderLocation.add(timeSettings, 'month', 1, 12, 1).name('Month').onChange(updateDate);
+     folderLocation.add(timeSettings, 'day', 1, 31, 1).name('Day').onChange(updateDate);
      folderLocation.add(timeSettings, 'hour', 0, 23.99).name('Hour').onChange(updateDate);
  
      gui.add(settings, 'loadFile').name('Open .3dm File');
@@ -226,6 +265,8 @@ function App() {
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
       gui.destroy();
+      guiRef.current = null;
+      layersFolderRef.current = null;
       if (containerRef.current && renderer.domElement) {
         containerRef.current.removeChild(renderer.domElement);
       }
@@ -723,6 +764,202 @@ function App() {
       });
       
       sceneRef.current?.add(object);
+
+      // --- Handle Layers ---
+      if (guiRef.current) {
+          // Destroy old layers folder if exists
+          if (layersFolderRef.current) {
+              layersFolderRef.current.destroy();
+              layersFolderRef.current = null;
+          }
+          
+          // Create new layers folder
+          const layersFolder = guiRef.current.addFolder('Layers');
+          layersFolderRef.current = layersFolder;
+          
+          // Get Layers from userData
+          const layers = object.userData.layers;
+          console.log('3DM Layers Info:', layers); // Log layers info
+          
+          if (layers && Array.isArray(layers)) {
+              // 1. Build Layer Tree
+               interface LayerNode {
+                   id: string; // UUID or index
+                   layerIndex: number;
+                   name: string;
+                   visible: boolean;
+                   children: LayerNode[];
+                   parentLayerId: string;
+               }
+ 
+               const layerMap = new Map<string, LayerNode>();
+               const rootLayers: LayerNode[] = [];
+               const layerState: Record<string, boolean> = {};
+ 
+               // First pass: Create nodes and map
+               layers.forEach((layer: any) => {
+                   const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
+                   const layerId = layer.id; // Usually UUID
+                   const parentLayerId = layer.parentLayerId;
+                   
+                   // Default visibility: true unless explicitly false
+                   const isVisible = layer.visible !== false;
+                   
+                   const node: LayerNode = {
+                       id: layerId,
+                       layerIndex: layerIndex,
+                       name: layer.name || `Layer ${layerIndex}`,
+                       visible: isVisible,
+                       children: [],
+                       parentLayerId: parentLayerId
+                   };
+                   
+                   layerMap.set(layerId, node);
+                   
+                   // Initialize state for GUI
+                   const key = `layer_${layerIndex}`;
+                   layerState[key] = isVisible;
+               });
+ 
+               // Second pass: Build hierarchy
+               layerMap.forEach((node) => {
+                   const parentLayerId = node.parentLayerId;
+                   // Check if parent exists and is not a nil UUID (0000...)
+                   const isRoot = !parentLayerId || parentLayerId === '00000000-0000-0000-0000-000000000000';
+                   
+                   if (isRoot) {
+                       rootLayers.push(node);
+                   } else {
+                       const parent = layerMap.get(parentLayerId);
+                       if (parent) {
+                           parent.children.push(node);
+                       } else {
+                           // Parent not found, treat as root
+                           rootLayers.push(node);
+                       }
+                   }
+               });
+ 
+               // Recursive function to set visibility for a hierarchy branch
+               const setLayerHierarchyVisibility = (node: LayerNode, visible: boolean) => {
+                   const key = `layer_${node.layerIndex}`;
+                   layerState[key] = visible;
+                   
+                   if (node.children) {
+                       node.children.forEach(child => {
+                           setLayerHierarchyVisibility(child, visible);
+                       });
+                   }
+               };
+
+               // Recursive function to update visibility based on hierarchy
+               const updateSceneVisibility = () => {
+                   object.traverse((child) => {
+                       if (child.userData?.attributes?.layerIndex !== undefined) {
+                           const layerIndex = child.userData.attributes.layerIndex;
+                           const key = `layer_${layerIndex}`;
+                           
+                           // Find the layer node to check hierarchy
+                          let isVisible = layerState[key] !== undefined ? layerState[key] : true;
+                          
+                          // Check ancestors
+                           let currentNode: LayerNode | undefined;
+                           for (const node of layerMap.values()) {
+                               if (node.layerIndex === layerIndex) {
+                                   currentNode = node;
+                                   break;
+                               }
+                           }
+                           
+                           if (currentNode) {
+                               let ptr: LayerNode | undefined = currentNode;
+                               while (ptr) {
+                                   const ptrKey = `layer_${ptr.layerIndex}`;
+                                   if (!layerState[ptrKey]) {
+                                       isVisible = false;
+                                       break;
+                                   }
+                                   
+                                   // Move up
+                                   if (ptr.parentLayerId && ptr.parentLayerId !== '00000000-0000-0000-0000-000000000000') {
+                                       ptr = layerMap.get(ptr.parentLayerId);
+                                   } else {
+                                       ptr = undefined;
+                                   }
+                               }
+                           }
+                           
+                           child.visible = isVisible;
+                       }
+                   });
+               };
+
+              // Recursive function to create GUI folders
+              const createLayerGUI = (nodes: LayerNode[], parentFolder: GUI) => {
+                  nodes.forEach(node => {
+                      const key = `layer_${node.layerIndex}`;
+                      
+                      if (node.children.length > 0) {
+                          // Create a folder for this layer
+                          const folder = parentFolder.addFolder(`📁 ${node.name}`);
+                          
+                          // Add toggle for the layer itself
+                          folder.add(layerState, key)
+                              .name(`👁️ ${node.name}`)
+                              .listen() // Update UI if value changes programmatically
+                              .onChange((v: boolean) => {
+                                  // Update all children states recursively
+                                  setLayerHierarchyVisibility(node, v);
+                                  updateSceneVisibility();
+                              });
+                          
+                          // Recursively add children
+                          createLayerGUI(node.children, folder);
+                      } else {
+                          // Leaf node
+                          parentFolder.add(layerState, key)
+                              .name(`🔹 ${node.name}`)
+                              .listen()
+                              .onChange(() => {
+                                  updateSceneVisibility();
+                              });
+                      }
+                  });
+              };
+
+              // Initial Scene Update
+              updateSceneVisibility();
+
+              // Create GUI
+              createLayerGUI(rootLayers, layersFolder);
+              
+          } else {
+             // Fallback: Scan objects for unique layer indices if userData.layers is missing
+             const foundLayers = new Set<number>();
+             object.traverse(child => {
+                 if (child.userData?.attributes?.layerIndex !== undefined) {
+                     foundLayers.add(child.userData.attributes.layerIndex);
+                 }
+             });
+             
+             if (foundLayers.size > 0) {
+                 const layerState: Record<string, boolean> = {};
+                 foundLayers.forEach(index => {
+                     const name = `Layer ${index}`;
+                     const key = `layer_${index}`;
+                     layerState[key] = true;
+                     
+                     layersFolder.add(layerState, key).name(name).onChange((visible: boolean) => {
+                         object.traverse(child => {
+                             if (child.userData?.attributes?.layerIndex === index) {
+                                 child.visible = visible;
+                             }
+                         });
+                     });
+                 });
+             }
+          }
+      }
 
       // Update Ground if shadows are enabled
       if (dirLightRef.current?.castShadow) {
