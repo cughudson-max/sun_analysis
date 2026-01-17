@@ -1,0 +1,204 @@
+import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import SunCalc from 'suncalc';
+import { ViewerSettings } from './useSettings';
+
+export function useLights(
+    sceneRef: React.MutableRefObject<THREE.Scene | null>,
+    settings: ViewerSettings
+) {
+    const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+    const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
+    const groundRef = useRef<THREE.Mesh | null>(null);
+
+    // Initialize Lights
+    useEffect(() => {
+        if (!sceneRef.current) return;
+        const scene = sceneRef.current;
+
+        const ambientLight = new THREE.AmbientLight(settings.ambientColor, settings.ambientIntensity);
+        scene.add(ambientLight);
+        ambientLightRef.current = ambientLight;
+
+        // Directional
+        const dirLight = new THREE.DirectionalLight(0xffffff, settings.brightness);
+        dirLight.position.set(100, -100, 100);
+        dirLight.castShadow = settings.shadows;
+        
+        dirLight.shadow.mapSize.width = settings.shadowQuality;
+        dirLight.shadow.mapSize.height = settings.shadowQuality;
+        dirLight.shadow.bias = settings.shadowBias;
+        dirLight.shadow.normalBias = 0.02;
+        dirLight.shadow.radius = settings.shadowRadius;
+        
+        const d = 100;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 10000;
+
+        scene.add(dirLight);
+        scene.add(dirLight.target);
+        dirLightRef.current = dirLight;
+
+        return () => {
+            scene.remove(ambientLight);
+            scene.remove(dirLight);
+            scene.remove(dirLight.target);
+            if (groundRef.current) scene.remove(groundRef.current);
+        };
+    }, [sceneRef]); // Only run once on scene init
+
+    // Update Lights based on Settings
+    useEffect(() => {
+        if (ambientLightRef.current) {
+            ambientLightRef.current.intensity = settings.ambientIntensity;
+            ambientLightRef.current.color.set(settings.ambientColor);
+        }
+
+        if (dirLightRef.current) {
+            dirLightRef.current.intensity = settings.brightness;
+            dirLightRef.current.castShadow = settings.shadows;
+            dirLightRef.current.shadow.mapSize.width = settings.shadowQuality;
+            dirLightRef.current.shadow.mapSize.height = settings.shadowQuality;
+            dirLightRef.current.shadow.bias = settings.shadowBias;
+            dirLightRef.current.shadow.radius = settings.shadowRadius;
+            
+            // Recreate shadow map if size changed
+             if (dirLightRef.current.shadow.map) {
+                dirLightRef.current.shadow.map.dispose();
+                dirLightRef.current.shadow.map = null;
+            }
+        }
+        
+        if (settings.shadows) {
+            updateGround();
+        } else if (groundRef.current && sceneRef.current) {
+             sceneRef.current.remove(groundRef.current);
+             groundRef.current = null;
+        }
+
+    }, [settings]);
+
+    // Sun Position
+    useEffect(() => {
+        if (!dirLightRef.current) return;
+        
+        const now = new Date();
+        if (settings.month !== undefined) now.setMonth(settings.month - 1);
+        if (settings.day !== undefined) now.setDate(settings.day);
+        if (settings.hour !== undefined) {
+             now.setHours(Math.floor(settings.hour));
+             now.setMinutes((settings.hour % 1) * 60);
+        }
+        
+        const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
+        const phi = times.altitude;
+        const theta = times.azimuth; 
+        const r = 1000;
+        
+        const x = r * Math.cos(phi) * -Math.sin(theta);
+        const y = r * Math.cos(phi) * -Math.cos(theta);
+        const z = r * Math.sin(phi);
+        
+        if (dirLightRef.current.target) {
+            const targetPos = dirLightRef.current.target.position;
+            dirLightRef.current.position.set(
+                targetPos.x + x,
+                targetPos.y + y,
+                targetPos.z + z
+            );
+        } else {
+            dirLightRef.current.position.set(x, y, z);
+        }
+        
+        dirLightRef.current.updateMatrixWorld();
+    }, [settings.latitude, settings.longitude, settings.month, settings.day, settings.hour]);
+
+    const updateSunPosition = () => {
+        if (!dirLightRef.current) return;
+        
+        const now = new Date();
+        if (settings.month !== undefined) now.setMonth(settings.month - 1);
+        if (settings.day !== undefined) now.setDate(settings.day);
+        if (settings.hour !== undefined) {
+             now.setHours(Math.floor(settings.hour));
+             now.setMinutes((settings.hour % 1) * 60);
+        }
+        
+        const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
+        const phi = times.altitude;
+        const theta = times.azimuth; 
+        const r = 1000;
+        
+        const x = r * Math.cos(phi) * -Math.sin(theta);
+        const y = r * Math.cos(phi) * -Math.cos(theta);
+        const z = r * Math.sin(phi);
+        
+        if (dirLightRef.current.target) {
+            const targetPos = dirLightRef.current.target.position;
+            dirLightRef.current.position.set(
+                targetPos.x + x,
+                targetPos.y + y,
+                targetPos.z + z
+            );
+        } else {
+            dirLightRef.current.position.set(x, y, z);
+        }
+        
+        dirLightRef.current.updateMatrixWorld();
+    };
+
+    const updateGround = () => {
+      if (!sceneRef.current) return;
+      
+      const box = new THREE.Box3();
+      let hasObjects = false;
+      
+      sceneRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+              if (child.name === 'Ground') return;
+              if (child.name === 'selection-box') return;
+              if (child.name === 'HighlightLine') return;
+              if (child.name === 'HighlightPoint') return;
+              if (child instanceof THREE.GridHelper) return;
+              if (child instanceof THREE.AxesHelper) return;
+              
+              box.expandByObject(child);
+              hasObjects = true;
+          }
+      });
+      
+      if (!hasObjects) {
+           const defaultSize = 1000;
+           box.min.set(-defaultSize, -defaultSize, 0);
+           box.max.set(defaultSize, defaultSize, 0);
+      }
+      
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      
+      const maxDim = Math.max(size.x, size.y);
+      const groundSize = Math.max(maxDim * 10, 10000);
+      
+      if (groundRef.current) {
+          sceneRef.current.remove(groundRef.current);
+          if (groundRef.current.geometry) groundRef.current.geometry.dispose();
+      }
+      
+      const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+      const groundMaterial = new THREE.ShadowMaterial({ opacity: 0.3, color: 0x000000 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.name = 'Ground';
+      
+      ground.position.set(0, 0, 0);
+      ground.receiveShadow = true;
+      
+      sceneRef.current.add(ground);
+      groundRef.current = ground;
+    };
+
+    return { dirLightRef, updateGround, updateSunPosition };
+}
