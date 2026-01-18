@@ -30,14 +30,24 @@ body {
 .loader {
   width: 12px;
   height: 12px;
-  border: 2px solid #e0e0e0; /* Light grey */
-  border-top: 2px solid #333; /* Darker grey/black for contrast */
+  border: 2px solid #e0e0e0;
+  border-top: 2px solid #333;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   position: absolute;
   bottom: 10px;
   left: 10px;
   z-index: 2000;
+}
+
+.loader-text {
+  position: absolute;
+  bottom: 10px;
+  left: 30px;
+  color: #333;
+  font-size: 12px;
+  z-index: 2000;
+  user-select: none;
 }
 
 /* Toolbar Style */

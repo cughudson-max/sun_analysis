@@ -14,13 +14,13 @@ export const createDistanceSprite = (text: string) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.Sprite(new THREE.SpriteMaterial());
 
-    const fontSize = 20;
-    const font = `${fontSize}px sans-serif`;
+    const fontSize = 14;
+    const font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.font = font;
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    const paddingX = 12;
-    const paddingY = 6;
+    const paddingX = 8;
+    const paddingY = 4;
     const dpr = window.devicePixelRatio || 1;
     
     canvas.width = Math.ceil((textWidth + paddingX * 2) * dpr);

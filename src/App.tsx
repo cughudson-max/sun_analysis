@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 
@@ -68,7 +68,6 @@ function App() {
   const {
       selectionBoxDivRef,
       selectedObjectsRef,
-      zoomToSelection,
       updateHighlights
   } = useSelection(
       sceneRef, 
@@ -135,7 +134,7 @@ function App() {
                                   if (child instanceof THREE.Sprite && child.material.map && child.material.map.image) {
                                        const img = child.material.map.image;
                                        const aspect = img.width / img.height;
-                                       const h = scaleFactor * 1.2; 
+                                       const h = scaleFactor * 0.233;
                                        const w = h * aspect;
                                        child.scale.set(w, h, 1);
                                   }
@@ -179,19 +178,19 @@ function App() {
           clearMeasurements: clearMeasurements
       };
       
-      gui.add(guiSettings, 'brightness', 0, 20).name('Brightness (Sun)').onChange(v => updateSettings({ brightness: v }));
+      gui.add(guiSettings, 'brightness', 0, 20).name('Brightness (Sun)').onChange((v: any) => updateSettings({ brightness: v }));
       
       const folderAmbient = gui.addFolder('Ambient Light');
-      folderAmbient.add(guiSettings, 'ambientIntensity', 0, 3).onChange(v => updateSettings({ ambientIntensity: v }));
-      folderAmbient.addColor(guiSettings, 'ambientColor').onChange(v => updateSettings({ ambientColor: v }));
+      folderAmbient.add(guiSettings, 'ambientIntensity', 0, 3).onChange((v: any) => updateSettings({ ambientIntensity: v }));
+      folderAmbient.addColor(guiSettings, 'ambientColor').onChange((v: any) => updateSettings({ ambientColor: v }));
       
       const shadowFolder = gui.addFolder('Shadows');
-      shadowFolder.add(guiSettings, 'shadows').onChange(v => updateSettings({ shadows: v }));
-      shadowFolder.add(guiSettings, 'shadowQuality', 1024, 8192, 1024).onChange(v => updateSettings({ shadowQuality: v }));
-      shadowFolder.add(guiSettings, 'shadowBias', -0.01, 0.01, 0.0001).onChange(v => updateSettings({ shadowBias: v }));
-      shadowFolder.add(guiSettings, 'shadowRadius', 0, 10, 0.1).onChange(v => updateSettings({ shadowRadius: v }));
+      shadowFolder.add(guiSettings, 'shadows').onChange((v: any) => updateSettings({ shadows: v }));
+      shadowFolder.add(guiSettings, 'shadowQuality', 1024, 8192, 1024).onChange((v: any) => updateSettings({ shadowQuality: v }));
+      shadowFolder.add(guiSettings, 'shadowBias', -0.01, 0.01, 0.0001).onChange((v: any) => updateSettings({ shadowBias: v }));
+      shadowFolder.add(guiSettings, 'shadowRadius', 0, 10, 0.1).onChange((v: any) => updateSettings({ shadowRadius: v }));
       
-      gui.add(guiSettings, 'showEdges').name('Show Surface Curves').onChange(v => {
+      gui.add(guiSettings, 'showEdges').name('Show Surface Curves').onChange((v: any) => {
           updateSettings({ showEdges: v });
           if (sceneRef.current) {
               sceneRef.current.traverse((child) => {
@@ -202,12 +201,12 @@ function App() {
           }
       });
       
-      gui.addColor(guiSettings, 'bgTop').onChange(v => updateSettings({ bgTop: v }));
-      gui.addColor(guiSettings, 'bgBottom').onChange(v => updateSettings({ bgBottom: v }));
+      gui.addColor(guiSettings, 'bgTop').onChange((v: any) => updateSettings({ bgTop: v }));
+      gui.addColor(guiSettings, 'bgBottom').onChange((v: any) => updateSettings({ bgBottom: v }));
       
       const folderLocation = gui.addFolder('Location & Time');
-      folderLocation.add(guiSettings, 'latitude', -90, 90).onChange(v => updateSettings({ latitude: v }));
-      folderLocation.add(guiSettings, 'longitude', -180, 180).onChange(v => updateSettings({ longitude: v }));
+      folderLocation.add(guiSettings, 'latitude', -90, 90).onChange((v: any) => updateSettings({ latitude: v }));
+      folderLocation.add(guiSettings, 'longitude', -180, 180).onChange((v: any) => updateSettings({ longitude: v }));
       
       const updateDate = () => {
           updateSettings({

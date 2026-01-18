@@ -13,11 +13,13 @@ export function useMeasurement(
     const measurementGroupRef = useRef<THREE.Group | null>(null);
     const measurementStartRef = useRef<THREE.Vector3 | null>(null);
     const measurementTempMarkerRef = useRef<THREE.Mesh | null>(null);
+    const tempLineRef = useRef<THREE.Line | null>(null);
     const highlightPointRef = useRef<THREE.Mesh | null>(null);
     
     const measurePointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
     const measureLineMaterialRef = useRef<THREE.LineBasicMaterial | null>(null);
     const measurePointMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
+    const geometryCacheRef = useRef<Map<string, THREE.BufferGeometry>>(new Map());
     
     const undoStackRef = useRef<THREE.Group[]>([]);
     const redoStackRef = useRef<THREE.Group[]>([]);
@@ -31,11 +33,11 @@ export function useMeasurement(
         scene.add(measurementGroup);
         measurementGroupRef.current = measurementGroup;
         
-        measurePointGeometryRef.current = new THREE.SphereGeometry(0.05, 16, 16);
+        measurePointGeometryRef.current = new THREE.SphereGeometry(0.02, 16, 16);
         measureLineMaterialRef.current = new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
         measurePointMaterialRef.current = new THREE.MeshBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
 
-        const highlightGeo = new THREE.SphereGeometry(0.3, 16, 16);
+        const highlightGeo = new THREE.SphereGeometry(0.075, 16, 16);
         const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, depthTest: false, depthWrite: false, transparent: true, opacity: 0.8 });
         const highlightPoint = new THREE.Mesh(highlightGeo, highlightMat);
         highlightPoint.name = 'HighlightPoint';
@@ -63,12 +65,23 @@ export function useMeasurement(
         measurementStartRef.current = null;
         if (measurementTempMarkerRef.current) measurementTempMarkerRef.current.visible = false;
         if (highlightPointRef.current) highlightPointRef.current.visible = false;
+        if (tempLineRef.current && measurementGroupRef.current) {
+            measurementGroupRef.current.remove(tempLineRef.current);
+            tempLineRef.current.geometry.dispose();
+            tempLineRef.current = null;
+        }
         document.body.classList.remove('cursor-crosshair');
 
         // Remove focus from button to avoid lingering focus state
         if (document.activeElement instanceof HTMLElement) {
             document.activeElement.blur();
         }
+    };
+
+    const exitMeasureModeDeferred = () => {
+        setTimeout(() => {
+            exitMeasureMode();
+        }, 0);
     };
 
     const clearMeasurements = () => {
@@ -98,6 +111,9 @@ export function useMeasurement(
         if (measurementTempMarkerRef.current) {
             measurementTempMarkerRef.current.parent?.remove(measurementTempMarkerRef.current);
             measurementTempMarkerRef.current = null;
+        }
+        if (tempLineRef.current) {
+            tempLineRef.current = null;
         }
         
         undoStackRef.current = [];
@@ -153,8 +169,6 @@ export function useMeasurement(
         const mid = start.clone().add(end).multiplyScalar(0.5);
         label.position.copy(mid);
 
-        const scaleBase = Math.min(Math.max(distance * 0.08, 2), 50);
-        label.scale.set(scaleBase * 2.0, scaleBase * 0.5, 1);
         label.renderOrder = 10000;
 
         measurement.add(line);
@@ -167,7 +181,20 @@ export function useMeasurement(
         undoStackRef.current.push(measurement);
         redoStackRef.current = [];
         
-        exitMeasureMode();
+        exitMeasureModeDeferred();
+    };
+
+    const getCachedGeometry = (mesh: THREE.Mesh) => {
+        const geom = mesh.geometry;
+        if (!(geom instanceof THREE.BufferGeometry)) return null;
+        const key = geom.uuid;
+        const cache = geometryCacheRef.current;
+        if (!cache.has(key)) {
+            const cloned = geom.clone();
+            cloned.computeBoundingSphere();
+            cache.set(key, cloned);
+        }
+        return cache.get(key) || null;
     };
 
     const getSnappedPoint = (clientX: number, clientY: number, raycaster: THREE.Raycaster, mouse: THREE.Vector2): THREE.Vector3 | null => {
@@ -199,9 +226,9 @@ export function useMeasurement(
   
         if (hit.face && hit.object instanceof THREE.Mesh) {
             const mesh = hit.object;
-            const geom = mesh.geometry;
-            if (geom instanceof THREE.BufferGeometry && geom.attributes.position) {
-                const posAttr = geom.attributes.position as THREE.BufferAttribute;
+            const cachedGeom = getCachedGeometry(mesh);
+            if (cachedGeom && cachedGeom.attributes.position) {
+                const posAttr = cachedGeom.attributes.position as THREE.BufferAttribute;
                 const a = hit.face.a;
                 const b = hit.face.b;
                 const c = hit.face.c;
@@ -209,8 +236,7 @@ export function useMeasurement(
                 const vB = new THREE.Vector3().fromBufferAttribute(posAttr, b).applyMatrix4(mesh.matrixWorld);
                 const vC = new THREE.Vector3().fromBufferAttribute(posAttr, c).applyMatrix4(mesh.matrixWorld);
   
-                geom.computeBoundingSphere();
-                const sphereRadius = geom.boundingSphere ? geom.boundingSphere.radius : 1;
+                const sphereRadius = cachedGeom.boundingSphere ? cachedGeom.boundingSphere.radius : 1;
                 const worldScale = new THREE.Vector3();
                 mesh.getWorldScale(worldScale);
                 const snapDist = sphereRadius * Math.max(worldScale.x, worldScale.y, worldScale.z) * 0.05; 
@@ -243,19 +269,55 @@ export function useMeasurement(
         const mouse = new THREE.Vector2();
 
         const onPointerMove = (event: PointerEvent) => {
-            if (measureModeRef.current) {
-                const snapped = getSnappedPoint(event.clientX, event.clientY, raycaster, mouse);
-                if (snapped && highlightPointRef.current) {
-                    highlightPointRef.current.position.copy(snapped);
-                    highlightPointRef.current.visible = true;
-                } else if (highlightPointRef.current) {
-                    highlightPointRef.current.visible = false;
+            if (!measureModeRef.current) return;
+
+            const snapped = getSnappedPoint(event.clientX, event.clientY, raycaster, mouse);
+
+            if (snapped && highlightPointRef.current) {
+                highlightPointRef.current.position.copy(snapped);
+                highlightPointRef.current.visible = true;
+            } else if (highlightPointRef.current) {
+                highlightPointRef.current.visible = false;
+            }
+
+            if (measurementStartRef.current && measurementGroupRef.current && measureLineMaterialRef.current) {
+                if (!snapped) {
+                    if (tempLineRef.current && measurementGroupRef.current) {
+                        measurementGroupRef.current.remove(tempLineRef.current);
+                        tempLineRef.current.geometry.dispose();
+                        tempLineRef.current = null;
+                    }
+                    return;
                 }
+
+                if (!tempLineRef.current) {
+                    const geom = new THREE.BufferGeometry().setFromPoints([
+                        measurementStartRef.current,
+                        snapped
+                    ]);
+                    const line = new THREE.Line(geom, measureLineMaterialRef.current);
+                    line.name = 'MeasurementTempLine';
+                    line.renderOrder = 9998;
+                    measurementGroupRef.current.add(line);
+                    tempLineRef.current = line;
+                } else {
+                    const geom = tempLineRef.current.geometry as THREE.BufferGeometry;
+                    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
+                    posAttr.setXYZ(0, measurementStartRef.current.x, measurementStartRef.current.y, measurementStartRef.current.z);
+                    posAttr.setXYZ(1, snapped.x, snapped.y, snapped.z);
+                    posAttr.needsUpdate = true;
+                    geom.computeBoundingSphere();
+                }
+            } else if (tempLineRef.current && measurementGroupRef.current) {
+                measurementGroupRef.current.remove(tempLineRef.current);
+                tempLineRef.current.geometry.dispose();
+                tempLineRef.current = null;
             }
         };
 
         const onClick = (event: MouseEvent) => {
              if (!measureModeRef.current) return;
+             event.stopImmediatePropagation();
              
              const picked = getSnappedPoint(event.clientX, event.clientY, raycaster, mouse);
              if (!picked) return;
@@ -284,6 +346,11 @@ export function useMeasurement(
              measurementStartRef.current = null;
              if (measurementTempMarkerRef.current) {
                  measurementTempMarkerRef.current.visible = false;
+             }
+             if (tempLineRef.current && measurementGroupRef.current) {
+                 measurementGroupRef.current.remove(tempLineRef.current);
+                 tempLineRef.current.geometry.dispose();
+                 tempLineRef.current = null;
              }
         };
 
