@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import GUI from 'lil-gui';
 import { zoomToBox } from '../utils/camera-utils';
+import type { DisplayMode } from './useSettings';
 
 export function useRhinoLoader(
     sceneRef: React.MutableRefObject<THREE.Scene | null>,
@@ -14,7 +15,7 @@ export function useRhinoLoader(
     updateGround: () => void,
     updateHighlights: () => void,
     clearMeasurements: () => void,
-    showEdges: boolean,
+    displayMode: DisplayMode,
     updateSunPosition: () => void,
     selectedObjectsRef: React.MutableRefObject<Set<string>>
 ) {
@@ -63,11 +64,12 @@ export function useRhinoLoader(
                 if (child instanceof THREE.Mesh) {
                    child.castShadow = true;
                    child.receiveShadow = true;
+                   child.userData.isModelMesh = true;
 
                    const edges = new THREE.EdgesGeometry(child.geometry);
                    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
                    line.name = 'SurfaceEdge';
-                   line.visible = showEdges;
+                   line.visible = displayMode !== 'shade';
                    child.add(line);
                    
                    if (!child.material) {

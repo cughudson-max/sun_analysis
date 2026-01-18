@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 
 const SETTINGS_KEY = '3dm-viewer-settings';
 
+export type DisplayMode = 'shade' | 'shadeWithEdge' | 'wireframe';
+
 export interface ViewerSettings {
     bgTop: string;
     bgBottom: string;
     latitude: number;
     longitude: number;
     projection: 'perspective' | 'orthographic';
-    showEdges: boolean;
+    displayMode: DisplayMode;
     shadows: boolean;
     shadowQuality: number;
     shadowBias: number;
@@ -27,7 +29,7 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     latitude: 39.9,
     longitude: 116.4,
     projection: 'perspective',
-    showEdges: true,
+    displayMode: 'shadeWithEdge',
     shadows: true,
     shadowQuality: 4096,
     shadowBias: -0.0001,
@@ -40,13 +42,23 @@ const DEFAULT_SETTINGS: ViewerSettings = {
 export function useSettings() {
     const [settings, setSettings] = useState<ViewerSettings>(DEFAULT_SETTINGS);
 
-    // Load settings on mount
     useEffect(() => {
         try {
             const saved = localStorage.getItem(SETTINGS_KEY);
             if (saved) {
                 const parsed = JSON.parse(saved);
-                setSettings(prev => ({ ...prev, ...parsed }));
+                setSettings(prev => {
+                    let displayMode: DisplayMode = parsed.displayMode;
+                    if (!displayMode) {
+                        if (typeof parsed.showEdges === 'boolean') {
+                            displayMode = parsed.showEdges ? 'shadeWithEdge' : 'shade';
+                        } else {
+                            displayMode = DEFAULT_SETTINGS.displayMode;
+                        }
+                    }
+                    const { showEdges, ...rest } = parsed;
+                    return { ...prev, ...rest, displayMode };
+                });
             }
         } catch (e) {
             console.error('Failed to load settings', e);
@@ -57,7 +69,6 @@ export function useSettings() {
         setSettings(prev => {
             const updated = { ...prev, ...newSettings };
             try {
-                // Merge with existing logic in localStorage to avoid overwriting other keys if any
                 const currentStored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
                 localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...currentStored, ...newSettings }));
             } catch (e) {

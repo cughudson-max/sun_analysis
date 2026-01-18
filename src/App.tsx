@@ -24,6 +24,7 @@ function App() {
 
   // 1. Settings
   const { settings, updateSettings } = useSettings();
+  const displayMode = settings.displayMode || 'shadeWithEdge';
 
   // 2. Scene Setup
   const { 
@@ -94,7 +95,7 @@ function App() {
       updateGround,
       updateHighlights,
       clearMeasurements,
-      settings.showEdges,
+      displayMode,
       updateSunPosition,
       selectedObjectsRef
   );
@@ -150,7 +151,26 @@ function App() {
       animate();
   }, [rendererRef.current]);
 
-  // 8. GUI Initialization
+  // 8. Display Mode
+  useEffect(() => {
+      if (!sceneRef.current) return;
+      const mode = displayMode || 'shadeWithEdge';
+      sceneRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.userData.isModelMesh) {
+              const materials = Array.isArray(child.material) ? child.material : [child.material];
+              materials.forEach((mat: any) => {
+                  if (mat && typeof mat === 'object' && 'wireframe' in mat) {
+                      mat.wireframe = mode === 'wireframe';
+                  }
+              });
+          }
+          if (child.name === 'SurfaceEdge') {
+              child.visible = mode !== 'shade';
+          }
+      });
+  }, [sceneRef, displayMode]);
+
+  // 9. GUI Initialization
   useEffect(() => {
       if (guiRef.current) guiRef.current.destroy();
       
@@ -165,7 +185,6 @@ function App() {
           shadowQuality: settings.shadowQuality,
           shadowBias: settings.shadowBias,
           shadowRadius: settings.shadowRadius,
-          showEdges: settings.showEdges,
           bgTop: settings.bgTop,
           bgBottom: settings.bgBottom,
           latitude: settings.latitude,
@@ -189,18 +208,6 @@ function App() {
       shadowFolder.add(guiSettings, 'shadowQuality', 1024, 8192, 1024).onChange((v: any) => updateSettings({ shadowQuality: v }));
       shadowFolder.add(guiSettings, 'shadowBias', -0.01, 0.01, 0.0001).onChange((v: any) => updateSettings({ shadowBias: v }));
       shadowFolder.add(guiSettings, 'shadowRadius', 0, 10, 0.1).onChange((v: any) => updateSettings({ shadowRadius: v }));
-      
-      gui.add(guiSettings, 'showEdges').name('Show Surface Curves').onChange((v: any) => {
-          updateSettings({ showEdges: v });
-          if (sceneRef.current) {
-              sceneRef.current.traverse((child) => {
-                  if (child.name === 'SurfaceEdge') {
-                      child.visible = v;
-                  }
-              });
-          }
-      });
-      
       gui.addColor(guiSettings, 'bgTop').onChange((v: any) => updateSettings({ bgTop: v }));
       gui.addColor(guiSettings, 'bgBottom').onChange((v: any) => updateSettings({ bgBottom: v }));
       
@@ -244,11 +251,13 @@ function App() {
       <Toolbar 
           isMeasureActive={isMeasureActive}
           isOrtho={settings.projection === 'orthographic'}
+          displayMode={displayMode}
           onMeasureClick={isMeasureActive ? exitMeasureMode : enterMeasureMode}
           onUndo={undoMeasurement}
           onRedo={redoMeasurement}
           onClear={clearMeasurements}
           onToggleProjection={() => updateSettings({ projection: settings.projection === 'orthographic' ? 'perspective' : 'orthographic' })}
+          onChangeDisplayMode={(mode) => updateSettings({ displayMode: mode })}
       />
       
       <div ref={selectionBoxDivRef} className="selection-box"></div>
