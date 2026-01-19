@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import * as THREE from 'three';
 import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
-import GUI from 'lil-gui';
 import { zoomToBox } from '../utils/camera-utils';
 import type { DisplayMode } from './useSettings';
 
@@ -11,7 +10,6 @@ export function useRhinoLoader(
     controlsRef: React.MutableRefObject<any>,
     orthoFrustumHeightRef: React.MutableRefObject<number>,
     dirLightRef: React.MutableRefObject<THREE.DirectionalLight | null>,
-    guiRef: React.MutableRefObject<GUI | null>,
     updateGround: () => void,
     updateHighlights: () => void,
     clearMeasurements: () => void,
@@ -21,7 +19,8 @@ export function useRhinoLoader(
 ) {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
-    const layersFolderRef = useRef<GUI | null>(null);
+    const [layers, setLayers] = useState<{ index: number; name: string; visible: boolean }[]>([]);
+    const layerStateRef = useRef<Record<string, boolean>>({});
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -120,169 +119,48 @@ export function useRhinoLoader(
             
             sceneRef.current?.add(object);
 
-            if (guiRef.current) {
-                if (layersFolderRef.current) {
-                    layersFolderRef.current.destroy();
-                    layersFolderRef.current = null;
-                }
-                
-                const layersFolder = guiRef.current.addFolder('Layers');
-                layersFolderRef.current = layersFolder;
-                
-                const layers = object.userData.layers;
-                
-                if (layers && Array.isArray(layers)) {
-                     interface LayerNode {
-                         id: string;
-                         layerIndex: number;
-                         name: string;
-                         visible: boolean;
-                         children: LayerNode[];
-                         parentLayerId: string;
-                     }
-       
-                     const layerMap = new Map<string, LayerNode>();
-                     const rootLayers: LayerNode[] = [];
-                     const layerState: Record<string, boolean> = {};
-       
-                     layers.forEach((layer: any) => {
-                         const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
-                         const layerId = layer.id;
-                         const parentLayerId = layer.parentLayerId;
-                         const isVisible = layer.visible !== false;
-                         
-                         const node: LayerNode = {
-                             id: layerId,
-                             layerIndex: layerIndex,
-                             name: layer.name || `Layer ${layerIndex}`,
-                             visible: isVisible,
-                             children: [],
-                             parentLayerId: parentLayerId
-                         };
-                         
-                         layerMap.set(layerId, node);
-                         layerState[`layer_${layerIndex}`] = isVisible;
-                     });
-       
-                     layerMap.forEach((node) => {
-                         const parentLayerId = node.parentLayerId;
-                         const isRoot = !parentLayerId || parentLayerId === '00000000-0000-0000-0000-000000000000';
-                         
-                         if (isRoot) {
-                             rootLayers.push(node);
-                         } else {
-                             const parent = layerMap.get(parentLayerId);
-                             if (parent) {
-                                 parent.children.push(node);
-                             } else {
-                                 rootLayers.push(node);
-                             }
-                         }
-                     });
-       
-                     const setLayerHierarchyVisibility = (node: LayerNode, visible: boolean) => {
-                         const key = `layer_${node.layerIndex}`;
-                         layerState[key] = visible;
-                         
-                         if (node.children) {
-                             node.children.forEach(child => {
-                                 setLayerHierarchyVisibility(child, visible);
-                             });
-                         }
-                     };
-      
-                     const updateSceneVisibility = () => {
-                         object.traverse((child) => {
-                             if (child.userData?.attributes?.layerIndex !== undefined) {
-                                 const layerIndex = child.userData.attributes.layerIndex;
-                                 const key = `layer_${layerIndex}`;
-                                 
-                                let isVisible = layerState[key] !== undefined ? layerState[key] : true;
-                                
-                                 let currentNode: LayerNode | undefined;
-                                 for (const node of layerMap.values()) {
-                                     if (node.layerIndex === layerIndex) {
-                                         currentNode = node;
-                                         break;
-                                     }
-                                 }
-                                 
-                                 if (currentNode) {
-                                     let ptr: LayerNode | undefined = currentNode;
-                                     while (ptr) {
-                                         const ptrKey = `layer_${ptr.layerIndex}`;
-                                         if (!layerState[ptrKey]) {
-                                             isVisible = false;
-                                             break;
-                                         }
-                                         
-                                         if (ptr.parentLayerId && ptr.parentLayerId !== '00000000-0000-0000-0000-000000000000') {
-                                             ptr = layerMap.get(ptr.parentLayerId);
-                                         } else {
-                                             ptr = undefined;
-                                         }
-                                     }
-                                 }
-                                 
-                                 child.visible = isVisible;
-                             }
-                         });
-                     };
-      
-                    const createLayerGUI = (nodes: LayerNode[], parentFolder: GUI) => {
-                        nodes.forEach(node => {
-                            const key = `layer_${node.layerIndex}`;
-                            
-                            if (node.children.length > 0) {
-                                const folder = parentFolder.addFolder(`📁 ${node.name}`);
-                                
-                                folder.add(layerState, key)
-                                    .name(`👁️ ${node.name}`)
-                                    .listen()
-                                    .onChange((v: boolean) => {
-                                        setLayerHierarchyVisibility(node, v);
-                                        updateSceneVisibility();
-                                    });
-                                
-                                createLayerGUI(node.children, folder);
-                            } else {
-                                parentFolder.add(layerState, key)
-                                    .name(`🔹 ${node.name}`)
-                                    .listen()
-                                    .onChange(() => {
-                                        updateSceneVisibility();
-                                    });
-                            }
-                        });
-                    };
-      
-                    updateSceneVisibility();
-                    createLayerGUI(rootLayers, layersFolder);
-                    
-                } else {
-                   const foundLayers = new Set<number>();
-                   object.traverse(child => {
-                       if (child.userData?.attributes?.layerIndex !== undefined) {
-                           foundLayers.add(child.userData.attributes.layerIndex);
-                       }
-                   });
-                   
-                   if (foundLayers.size > 0) {
-                       const layerState: Record<string, boolean> = {};
-                       foundLayers.forEach(index => {
-                           const name = `Layer ${index}`;
-                           const key = `layer_${index}`;
-                           layerState[key] = true;
-                           
-                           layersFolder.add(layerState, key).name(name).onChange((visible: boolean) => {
-                               object.traverse(child => {
-                                   if (child.userData?.attributes?.layerIndex === index) {
-                                       child.visible = visible;
-                                   }
-                               });
-                           });
-                       });
-                   }
+            const builtinLayers = object.userData.layers;
+            if (builtinLayers && Array.isArray(builtinLayers)) {
+                const nextState: Record<string, boolean> = {};
+                const nextLayers: { index: number; name: string; visible: boolean }[] = [];
+                builtinLayers.forEach((layer: any) => {
+                    const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
+                    const isVisible = layer.visible !== false;
+                    const name = layer.name || `Layer ${layerIndex}`;
+                    const key = `layer_${layerIndex}`;
+                    nextState[key] = isVisible;
+                    nextLayers.push({ index: layerIndex, name, visible: isVisible });
+                });
+                layerStateRef.current = nextState;
+                setLayers(nextLayers);
+
+                object.traverse(child => {
+                    if (child.userData?.attributes?.layerIndex !== undefined) {
+                        const layerIndex = child.userData.attributes.layerIndex;
+                        const key = `layer_${layerIndex}`;
+                        const visible = layerStateRef.current[key] ?? true;
+                        child.visible = visible;
+                    }
+                });
+            } else {
+                const foundLayers = new Set<number>();
+                object.traverse(child => {
+                    if (child.userData?.attributes?.layerIndex !== undefined) {
+                        foundLayers.add(child.userData.attributes.layerIndex);
+                    }
+                });
+
+                if (foundLayers.size > 0) {
+                    const nextState: Record<string, boolean> = {};
+                    const nextLayers: { index: number; name: string; visible: boolean }[] = [];
+                    foundLayers.forEach(index => {
+                        const key = `layer_${index}`;
+                        const name = `Layer ${index}`;
+                        nextState[key] = true;
+                        nextLayers.push({ index, name, visible: true });
+                    });
+                    layerStateRef.current = nextState;
+                    setLayers(nextLayers);
                 }
             }
 
@@ -306,10 +184,31 @@ export function useRhinoLoader(
         });
     };
 
+    const setLayerVisibility = (index: number, visible: boolean) => {
+        const key = `layer_${index}`;
+        const current = { ...layerStateRef.current, [key]: visible };
+        layerStateRef.current = current;
+
+        if (sceneRef.current) {
+            sceneRef.current.traverse(child => {
+                if (child.userData?.attributes?.layerIndex === index) {
+                    child.visible = visible;
+                }
+            });
+        }
+
+        setLayers(prev =>
+            prev.map(layer =>
+                layer.index === index ? { ...layer, visible } : layer
+            )
+        );
+    };
+
     return {
         isLoading,
         loadingProgress,
         handleFileChange,
-        layersFolderRef
+        layers,
+        setLayerVisibility
     };
 }

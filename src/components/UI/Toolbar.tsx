@@ -70,16 +70,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               {isDisplayMenuOpen && (
                   <div className="toolbar-menu">
                       <button
-                          className={`toolbar-menu-item ${displayMode === 'shade' ? 'active' : ''}`}
-                          onClick={() => {
-                              onChangeDisplayMode('shade');
-                              setIsDisplayMenuOpen(false);
-                          }}
-                          title="Shade"
-                      >
-                          <img src={shadeIcon} alt="Shade" width={18} height={18} />
-                      </button>
-                      <button
                           className={`toolbar-menu-item ${displayMode === 'shadeWithEdge' ? 'active' : ''}`}
                           onClick={() => {
                               onChangeDisplayMode('shadeWithEdge');
@@ -88,6 +78,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                           title="Shade With Edge"
                       >
                           <img src={shadeWithEdgeIcon} alt="Shade With Edge" width={18} height={18} />
+                      </button>
+                      <button
+                          className={`toolbar-menu-item ${displayMode === 'shade' ? 'active' : ''}`}
+                          onClick={() => {
+                              onChangeDisplayMode('shade');
+                              setIsDisplayMenuOpen(false);
+                          }}
+                          title="Shade"
+                      >
+                          <img src={shadeIcon} alt="Shade" width={18} height={18} />
                       </button>
                       <button
                           className={`toolbar-menu-item ${displayMode === 'wireframe' ? 'active' : ''}`}

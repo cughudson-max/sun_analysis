@@ -4,10 +4,8 @@
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  width: 100vw;
+  height: 100vh;
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
@@ -144,4 +142,16 @@ body {
 /* Cursor Override */
 .cursor-crosshair {
   cursor: crosshair !important;
+}
+
+.layers-list {
+  max-height: 140px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: none;
+}
+
+.layers-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }

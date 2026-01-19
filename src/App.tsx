@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import GUI from 'lil-gui';
+
+import { Text, Slider, Switch, Input, Button, Checkbox, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel } from '@fluentui/react-components';
+import { DatePicker } from '@fluentui/react-datepicker-compat';
+import { TimePicker } from '@fluentui/react-timepicker-compat';
 
 import { useSettings } from './hooks/useSettings';
 import { useThreeScene } from './hooks/useThreeScene';
@@ -18,9 +21,100 @@ import './index.css';
 // Set Z-Up as requested
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
+type Hsv = {
+  h: number;
+  s: number;
+  v: number;
+  a?: number;
+};
+
+function hexToHsv(hex: string): Hsv {
+  let normalized = hex.trim();
+  if (normalized.startsWith('#')) {
+    normalized = normalized.slice(1);
+  }
+  if (normalized.length === 3) {
+    normalized = normalized
+      .split('')
+      .map(ch => ch + ch)
+      .join('');
+  }
+  if (normalized.length !== 6) {
+    return { h: 0, s: 0, v: 1, a: 1 };
+  }
+  const r = parseInt(normalized.slice(0, 2), 16) / 255;
+  const g = parseInt(normalized.slice(2, 4), 16) / 255;
+  const b = parseInt(normalized.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) {
+      h = ((g - b) / delta) % 6;
+    } else if (max === g) {
+      h = (b - r) / delta + 2;
+    } else {
+      h = (r - g) / delta + 4;
+    }
+    h *= 60;
+    if (h < 0) {
+      h += 360;
+    }
+  }
+  const s = max === 0 ? 0 : delta / max;
+  const v = max;
+  return { h, s, v, a: 1 };
+}
+
+function hsvToHex(color: Hsv): string {
+  let h = color.h;
+  const s = color.s;
+  const v = color.v;
+  if (Number.isNaN(h) || Number.isNaN(s) || Number.isNaN(v)) {
+    return '#ffffff';
+  }
+  h = ((h % 360) + 360) % 360;
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r1 = 0;
+  let g1 = 0;
+  let b1 = 0;
+  if (h < 60) {
+    r1 = c;
+    g1 = x;
+    b1 = 0;
+  } else if (h < 120) {
+    r1 = x;
+    g1 = c;
+    b1 = 0;
+  } else if (h < 180) {
+    r1 = 0;
+    g1 = c;
+    b1 = x;
+  } else if (h < 240) {
+    r1 = 0;
+    g1 = x;
+    b1 = c;
+  } else if (h < 300) {
+    r1 = x;
+    g1 = 0;
+    b1 = c;
+  } else {
+    r1 = c;
+    g1 = 0;
+    b1 = x;
+  }
+  const r = Math.round((r1 + m) * 255);
+  const g = Math.round((g1 + m) * 255);
+  const b = Math.round((b1 + m) * 255);
+  const toHex = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const guiRef = useRef<GUI | null>(null);
 
   // 1. Settings
   const { settings, updateSettings } = useSettings();
@@ -84,14 +178,15 @@ function App() {
   const {
       isLoading,
       loadingProgress,
-      handleFileChange
+      handleFileChange,
+      layers,
+      setLayerVisibility
   } = useRhinoLoader(
       sceneRef,
       cameraRef,
       controlsRef,
       orthoFrustumHeightRef,
       dirLightRef,
-      guiRef,
       updateGround,
       updateHighlights,
       clearMeasurements,
@@ -170,85 +265,24 @@ function App() {
       });
   }, [sceneRef, displayMode]);
 
-  // 9. GUI Initialization
-  useEffect(() => {
-      if (guiRef.current) guiRef.current.destroy();
-      
-      const gui = new GUI({ title: 'Settings' });
-      guiRef.current = gui;
-      
-      const guiSettings = {
-          brightness: settings.brightness,
-          ambientIntensity: settings.ambientIntensity,
-          ambientColor: settings.ambientColor,
-          shadows: settings.shadows,
-          shadowQuality: settings.shadowQuality,
-          shadowBias: settings.shadowBias,
-          shadowRadius: settings.shadowRadius,
-          bgTop: settings.bgTop,
-          bgBottom: settings.bgBottom,
-          latitude: settings.latitude,
-          longitude: settings.longitude,
-          month: settings.month || new Date().getMonth() + 1,
-          day: settings.day || new Date().getDate(),
-          hour: settings.hour || new Date().getHours() + new Date().getMinutes() / 60,
-          
-          loadFile: () => document.getElementById('file-input')?.click(),
-          clearMeasurements: clearMeasurements
-      };
-      
-      gui.add(guiSettings, 'brightness', 0, 20).name('Brightness (Sun)').onChange((v: any) => updateSettings({ brightness: v }));
-      
-      const folderAmbient = gui.addFolder('Ambient Light');
-      folderAmbient.add(guiSettings, 'ambientIntensity', 0, 3).onChange((v: any) => updateSettings({ ambientIntensity: v }));
-      folderAmbient.addColor(guiSettings, 'ambientColor').onChange((v: any) => updateSettings({ ambientColor: v }));
-      
-      const shadowFolder = gui.addFolder('Shadows');
-      shadowFolder.add(guiSettings, 'shadows').onChange((v: any) => updateSettings({ shadows: v }));
-      shadowFolder.add(guiSettings, 'shadowQuality', 1024, 8192, 1024).onChange((v: any) => updateSettings({ shadowQuality: v }));
-      shadowFolder.add(guiSettings, 'shadowBias', -0.01, 0.01, 0.0001).onChange((v: any) => updateSettings({ shadowBias: v }));
-      shadowFolder.add(guiSettings, 'shadowRadius', 0, 10, 0.1).onChange((v: any) => updateSettings({ shadowRadius: v }));
-      gui.addColor(guiSettings, 'bgTop').onChange((v: any) => updateSettings({ bgTop: v }));
-      gui.addColor(guiSettings, 'bgBottom').onChange((v: any) => updateSettings({ bgBottom: v }));
-      
-      const folderLocation = gui.addFolder('Location & Time');
-      folderLocation.add(guiSettings, 'latitude', -90, 90).onChange((v: any) => updateSettings({ latitude: v }));
-      folderLocation.add(guiSettings, 'longitude', -180, 180).onChange((v: any) => updateSettings({ longitude: v }));
-      
-      const updateDate = () => {
-          updateSettings({
-              month: guiSettings.month,
-              day: guiSettings.day,
-              hour: guiSettings.hour
-          });
-      };
-      
-      folderLocation.add(guiSettings, 'month', 1, 12, 1).onChange(updateDate);
-      folderLocation.add(guiSettings, 'day', 1, 31, 1).onChange(updateDate);
-      folderLocation.add(guiSettings, 'hour', 0, 23.99).onChange(updateDate);
-      
-      gui.add(guiSettings, 'loadFile').name('Open .3dm File');
-      
-      return () => {
-          gui.destroy();
-          guiRef.current = null;
-      };
-  }, []);
-
   return (
-    <div 
-      ref={containerRef} 
-      style={{ 
-        width: '100%', 
-        height: '100vh',
-        background: `linear-gradient(to bottom, ${settings.bgTop}, ${settings.bgBottom})`
-      }}
-    >
-      {isLoading && <Loader progress={loadingProgress} />}
-      
-      <ViewCube controlsRef={controlsRef} cameraRef={cameraRef} />
-      
-      <Toolbar 
+    <div style={{ display: 'flex', width: '100%', height: '100vh' }}>
+      <div
+        ref={containerRef}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          height: '100vh',
+          position: 'relative',
+          background: `linear-gradient(to bottom, ${settings.bgTop}, ${settings.bgBottom})`
+        }}
+      >
+        {isLoading && <Loader progress={loadingProgress} />}
+
+        <ViewCube controlsRef={controlsRef} cameraRef={cameraRef} />
+
+        <Toolbar
           isMeasureActive={isMeasureActive}
           isOrtho={settings.projection === 'orthographic'}
           displayMode={displayMode}
@@ -256,18 +290,356 @@ function App() {
           onUndo={undoMeasurement}
           onRedo={redoMeasurement}
           onClear={clearMeasurements}
-          onToggleProjection={() => updateSettings({ projection: settings.projection === 'orthographic' ? 'perspective' : 'orthographic' })}
-          onChangeDisplayMode={(mode) => updateSettings({ displayMode: mode })}
-      />
-      
-      <div ref={selectionBoxDivRef} className="selection-box"></div>
-      <input 
-        type="file" 
-        id="file-input" 
-        accept=".3dm" 
-        style={{ display: 'none' }} 
-        onChange={handleFileChange}
-      />
+          onToggleProjection={() =>
+            updateSettings({
+              projection:
+                settings.projection === 'orthographic' ? 'perspective' : 'orthographic'
+            })
+          }
+          onChangeDisplayMode={mode => updateSettings({ displayMode: mode })}
+        />
+
+        <div ref={selectionBoxDivRef} className="selection-box"></div>
+        <input
+          type="file"
+          id="file-input"
+          accept=".3dm"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+      </div>
+
+      <div
+        style={{
+          width: 364,
+          minWidth: 364,
+          maxWidth: 364,
+          flexShrink: 0,
+          height: '100%',
+          boxSizing: 'border-box',
+          padding: 12,
+          backgroundColor: '#ffffff',
+          color: '#000000',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          overflow: 'hidden'
+        }}
+      >
+        <div style={{ marginTop: 8, marginBottom: 4 }}>
+          <Button
+            appearance="primary"
+            style={{ width: '100%' }}
+            onClick={() => document.getElementById('file-input')?.click()}
+          >
+            打开 .3dm 文件
+          </Button>
+        </div>
+
+        <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
+
+        <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
+          <AccordionItem value="display">
+            <AccordionHeader>
+              <Text weight="semibold" size={200}>显示</Text>
+            </AccordionHeader>
+            <AccordionPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    亮度
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <Slider
+                      size="small"
+                      value={settings.brightness}
+                      min={0}
+                      max={20}
+                      onChange={(_, data) => updateSettings({ brightness: data.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <Text size={200} style={{ width: 18, textAlign: 'right' }}>
+                    {Math.round(settings.brightness)}
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    环境光强度
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <Slider
+                      size="small"
+                      value={settings.ambientIntensity}
+                      min={0}
+                      max={3}
+                      onChange={(_, data) => updateSettings({ ambientIntensity: data.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <Text size={200} style={{ width: 18, textAlign: 'right' }}>
+                    {Math.round(settings.ambientIntensity)}
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    环境光颜色
+                  </Text>
+                  <div style={{ marginLeft: 'auto' }}>
+                    <Popover>
+                      <PopoverTrigger disableButtonEnhancement>
+                        <button
+                          type="button"
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            border: '1px solid #d0d0d0',
+                            padding: 0,
+                            margin: 0,
+                            backgroundColor: settings.ambientColor,
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </PopoverTrigger>
+                      <PopoverSurface>
+                        <ColorPicker
+                          color={hexToHsv(settings.ambientColor)}
+                          onColorChange={(_, data) => {
+                            updateSettings({ ambientColor: hsvToHex(data.color as Hsv) });
+                          }}
+                        >
+                          <ColorSlider />
+                          <ColorArea />
+                        </ColorPicker>
+                      </PopoverSurface>
+                    </Popover>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    顶部颜色
+                  </Text>
+                  <div style={{ marginLeft: 'auto' }}>
+                    <Popover>
+                      <PopoverTrigger disableButtonEnhancement>
+                        <button
+                          type="button"
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            border: '1px solid #d0d0d0',
+                            padding: 0,
+                            margin: 0,
+                            backgroundColor: settings.bgTop,
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </PopoverTrigger>
+                      <PopoverSurface>
+                        <ColorPicker
+                          color={hexToHsv(settings.bgTop)}
+                          onColorChange={(_, data) => {
+                            updateSettings({ bgTop: hsvToHex(data.color as Hsv) });
+                          }}
+                        >
+                          <ColorSlider />
+                          <ColorArea />
+                        </ColorPicker>
+                      </PopoverSurface>
+                    </Popover>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    底部颜色
+                  </Text>
+                  <div style={{ marginLeft: 'auto' }}>
+                    <Popover>
+                      <PopoverTrigger disableButtonEnhancement>
+                        <button
+                          type="button"
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            border: '1px solid #d0d0d0',
+                            padding: 0,
+                            margin: 0,
+                            backgroundColor: settings.bgBottom,
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </PopoverTrigger>
+                      <PopoverSurface>
+                        <ColorPicker
+                          color={hexToHsv(settings.bgBottom)}
+                          onColorChange={(_, data) => {
+                            updateSettings({ bgBottom: hsvToHex(data.color as Hsv) });
+                          }}
+                        >
+                          <ColorSlider />
+                          <ColorArea />
+                        </ColorPicker>
+                      </PopoverSurface>
+                    </Popover>
+                  </div>
+                </div>
+              </div>
+            </AccordionPanel>
+          </AccordionItem>
+
+          <AccordionItem value="shadows">
+            <AccordionHeader>
+              <Text weight="semibold" size={200}>阴影</Text>
+            </AccordionHeader>
+            <AccordionPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    启用阴影
+                  </Text>
+                  <Switch
+                    checked={settings.shadows}
+                    onChange={(_, data) => updateSettings({ shadows: data.checked })}
+                    style={{ marginLeft: 'auto' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    纬度
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <Input
+                      type="number"
+                      size="medium"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      placeholder="纬度"
+                      value={String(settings.latitude)}
+                      disabled={!settings.shadows}
+                      onChange={(_, data) =>
+                        updateSettings({
+                          latitude: Math.max(-90, Math.min(90, parseFloat(data.value || '0') || 0))
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    经度
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <Input
+                      type="number"
+                      size="medium"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      placeholder="经度"
+                      value={String(settings.longitude)}
+                      disabled={!settings.shadows}
+                      onChange={(_, data) =>
+                        updateSettings({
+                          longitude: Math.max(-180, Math.min(180, parseFloat(data.value || '0') || 0))
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    日期
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <DatePicker
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      disabled={!settings.shadows}
+                      value={
+                        new Date(
+                          2000,
+                          (settings.month ?? new Date().getMonth() + 1) - 1,
+                          settings.day ?? new Date().getDate()
+                        )
+                      }
+                      formatDate={(date) => date ? date.toLocaleDateString('zh-CN') : ''}
+                      onSelectDate={date => {
+                        if (!date) return;
+                        updateSettings({
+                          month: date.getMonth() + 1,
+                          day: date.getDate()
+                        });
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    时间
+                  </Text>
+                  <div style={{ flex: 1 }}>
+                    <TimePicker
+                      freeform
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      disabled={!settings.shadows}
+                      placeholder="请选择时间"
+                      selectedTime={(() => {
+                        const base = new Date();
+                        const hourValue = settings.hour ?? 10.5;
+                        const h = Math.floor(hourValue);
+                        const m = Math.round((hourValue - h) * 60);
+                        const d = new Date(base);
+                        d.setHours(h, m, 0, 0);
+                        return d;
+                      })()}
+                      onTimeChange={(_, data) => {
+                        if (!data.selectedTime) return;
+                        const hours = data.selectedTime.getHours();
+                        const minutes = data.selectedTime.getMinutes();
+                        const hourValue = hours + minutes / 60;
+                        const clamped = Math.max(0, Math.min(23.99, hourValue));
+                        updateSettings({ hour: clamped });
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </AccordionPanel>
+          </AccordionItem>
+        </Accordion>
+
+        <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
+
+        <Text weight="semibold" size={200}>
+          图层
+        </Text>
+        <div className="layers-list">
+          {layers.map(layer => (
+            <div
+              key={layer.index}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 0',
+                cursor: 'pointer'
+              }}
+              onClick={() => setLayerVisibility(layer.index, !layer.visible)}
+            >
+              <Checkbox
+                checked={layer.visible}
+                onChange={(_, data) => setLayerVisibility(layer.index, !!data.checked)}
+              />
+              <Text size={200}>{layer.name}</Text>
+            </div>
+          ))}
+          {layers.length === 0 && (
+            <Text size={100} style={{ color: 'rgba(0,0,0,0.45)' }}>
+              加载模型以查看图层
+            </Text>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

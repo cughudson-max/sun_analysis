@@ -11,6 +11,9 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
 
     useEffect(() => {
         if (!containerRef.current) return;
+        const container = containerRef.current;
+        const width = container.clientWidth;
+        const height = container.clientHeight || window.innerHeight;
 
         // 1. Setup Scene
         const scene = new THREE.Scene();
@@ -44,7 +47,7 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
 
         // 2. Setup Renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -52,7 +55,7 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
         rendererRef.current = renderer;
 
         // 3. Setup Cameras
-        const aspect = window.innerWidth / window.innerHeight;
+        const aspect = width / height;
         const defaultTarget = new THREE.Vector3(0, 0, 0);
         const defaultPosition = new THREE.Vector3(50, -50, 50);
 
@@ -85,10 +88,10 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
 
         // 4. Handle Resize
         const handleResize = () => {
-            if (!rendererRef.current) return;
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            const newAspect = width / height;
+            if (!rendererRef.current || !containerRef.current) return;
+            const newWidth = containerRef.current.clientWidth;
+            const newHeight = containerRef.current.clientHeight || window.innerHeight;
+            const newAspect = newWidth / newHeight;
 
             if (perspectiveCameraRef.current) {
                 perspectiveCameraRef.current.aspect = newAspect;
@@ -105,7 +108,7 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
                 orthographicCameraRef.current.updateProjectionMatrix();
             }
 
-            rendererRef.current.setSize(width, height);
+            rendererRef.current.setSize(newWidth, newHeight);
         };
 
         window.addEventListener('resize', handleResize);

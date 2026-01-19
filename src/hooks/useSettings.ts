@@ -36,7 +36,8 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     shadowRadius: 1,
     ambientIntensity: 1.0,
     ambientColor: '#ffffff',
-    brightness: 5
+    brightness: 5,
+    hour: 10.5
 };
 
 export function useSettings() {
