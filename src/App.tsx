@@ -733,21 +733,23 @@ function App() {
 
         <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', height: 28, border: '1px solid #d1d1d1', borderBottom: 'none', backgroundColor: '#f5f5f5', paddingRight: 4 }}>
-          <div style={{ flex: 1, paddingLeft: 8, display: 'flex', alignItems: 'center' }}>
-            <Text size={200} weight="semibold">图层名称</Text>
+        <div className="layers-list" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #d1d1d1', backgroundColor: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', height: 28, backgroundColor: '#f5f5f5', borderBottom: '1px solid #e0e0e0', paddingRight: 4, flexShrink: 0 }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Text size={200} weight="semibold">图层名称</Text>
+            </div>
+            <div style={{ width: 24 }} />
+            <div style={{ width: 24 }} />
           </div>
-          <div style={{ width: 24 }} />
-          <div style={{ width: 24 }} />
-        </div>
-
-        <div className="layers-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #d1d1d1', borderTop: 'none', backgroundColor: '#fff' }}>
-          <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
-          {layers.length === 0 && (
-            <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center' }}>
-              加载模型以查看图层
-            </Text>
-          )}
+          
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
+            {layers.length === 0 && (
+              <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center' }}>
+                加载模型以查看图层
+              </Text>
+            )}
+          </div>
         </div>
 
         <div style={{ marginTop: 4 }}>
