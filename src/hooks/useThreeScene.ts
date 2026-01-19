@@ -51,6 +51,7 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.localClippingEnabled = true;
         containerRef.current.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 

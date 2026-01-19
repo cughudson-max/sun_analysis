@@ -19,6 +19,7 @@ import { useControls } from './hooks/useControls';
 import { useSelection } from './hooks/useSelection';
 import { useMeasurement } from './hooks/useMeasurement';
 import { useRhinoLoader } from './hooks/useRhinoLoader';
+import { useClipping } from './hooks/useClipping';
 
 import ViewCube from './components/ViewCube';
 import { Toolbar } from './components/UI/Toolbar';
@@ -290,6 +291,18 @@ function App() {
       updateSunPosition,
       selectedObjectsRef
   );
+
+  // Clipping
+  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials } = useClipping(
+    sceneRef,
+    cameraRef,
+    rendererRef,
+    controlsRef
+  );
+
+  useEffect(() => {
+    updateClippingMaterials();
+  }, [layers, updateClippingMaterials]);
 
   // 7. Animation Loop
   useEffect(() => {
@@ -700,6 +713,24 @@ function App() {
                       }}
                     />
                   </div>
+                </div>
+              </div>
+            </AccordionPanel>
+          </AccordionItem>
+
+          <AccordionItem value="clipping">
+            <AccordionHeader>
+              <Text weight="semibold" size={200}>剖切</Text>
+            </AccordionHeader>
+            <AccordionPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>开启剖切</Text>
+                  <Switch 
+                    checked={isClippingActive} 
+                    onChange={toggleClipping} 
+                    style={{ marginLeft: 'auto' }}
+                  />
                 </div>
               </div>
             </AccordionPanel>
