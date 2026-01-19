@@ -12,7 +12,8 @@ export function useSelection(
     controlsRef: React.MutableRefObject<OrbitControls | null>,
     orthoFrustumHeightRef: React.MutableRefObject<number>,
     selectionBoxRef: React.MutableRefObject<SelectionBox | null>,
-    measureModeRef: React.MutableRefObject<boolean>
+    measureModeRef: React.MutableRefObject<boolean>,
+    clippingPlanes: THREE.Plane[] = []
 ) {
     const selectionBoxDivRef = useRef<HTMLDivElement>(null);
     const startMouseRef = useRef<{x: number, y: number, time: number}>({ x: 0, y: 0, time: 0 });
@@ -225,6 +226,15 @@ export function useSelection(
           
           const intersects = raycaster.intersectObjects(sceneRef.current.children, true);
           const validIntersects = intersects.filter(hit => {
+             // Check clipping planes
+             if (clippingPlanes.length > 0) {
+                 for (const plane of clippingPlanes) {
+                     if (plane.distanceToPoint(hit.point) < 0) {
+                         return false;
+                     }
+                 }
+             }
+
              return hit.object instanceof THREE.Mesh &&
                     !isInMeasurements(hit.object) &&
                     hit.object.name !== 'HighlightLine' &&
@@ -253,7 +263,7 @@ export function useSelection(
           element.removeEventListener('pointerup', onPointerUp);
           element.removeEventListener('click', onClick);
         };
-    }, [rendererRef.current]);
+    }, [rendererRef.current, clippingPlanes]);
 
     return {
         selectionBoxDivRef,

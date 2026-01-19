@@ -54,10 +54,52 @@ export function useClipping(
                         child.material.forEach(m => {
                             m.clippingPlanes = plane;
                             m.clipShadows = true; 
+                            m.onBeforeCompile = (shader: THREE.Shader) => {
+                                shader.fragmentShader = shader.fragmentShader.replace(
+                                    '#include <clipping_planes_fragment>',
+                                    `
+                                    #if NUM_CLIPPING_PLANES > 0
+                                        vec4 plane;
+                                        #pragma unroll_loop_start
+                                        for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
+                                            plane = clippingPlanes[ i ];
+                                            if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
+                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.05 ) {
+                                                gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+                                                return;
+                                            }
+                                        }
+                                        #pragma unroll_loop_end
+                                    #endif
+                                    `
+                                );
+                            };
+                            m.needsUpdate = true;
                         });
                     } else {
                         child.material.clippingPlanes = plane;
                         child.material.clipShadows = true;
+                        child.material.onBeforeCompile = (shader: THREE.Shader) => {
+                            shader.fragmentShader = shader.fragmentShader.replace(
+                                '#include <clipping_planes_fragment>',
+                                `
+                                #if NUM_CLIPPING_PLANES > 0
+                                    vec4 plane;
+                                    #pragma unroll_loop_start
+                                    for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
+                                        plane = clippingPlanes[ i ];
+                                        if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
+                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.05 ) {
+                                            gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+                                            return;
+                                        }
+                                    }
+                                    #pragma unroll_loop_end
+                                #endif
+                                `
+                            );
+                        };
+                        child.material.needsUpdate = true;
                     }
                 }
             } else if (child instanceof THREE.LineSegments && child.name === 'SurfaceEdge') {
@@ -206,6 +248,7 @@ export function useClipping(
         toggleClipping,
         updateMaterials,
         flipClipping,
-        alignToAxis
+        alignToAxis,
+        clippingPlanes: isClippingActive && planeRef.current ? [planeRef.current] : []
     };
 }
