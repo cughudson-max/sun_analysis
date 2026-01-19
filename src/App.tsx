@@ -690,6 +690,18 @@ function App() {
                       style={{ width: '100%', boxSizing: 'border-box' }}
                       disabled={!settings.shadows}
                       placeholder="选择时间"
+                      value={(() => {
+                        const base = new Date();
+                        const currentHour = base.getHours() + base.getMinutes() / 60;
+                        const hourValue = settings.hour ?? currentHour;
+                        const h = Math.floor(hourValue);
+                        const m = Math.round((hourValue - h) * 60);
+                        const d = new Date(base);
+                        d.setHours(h, m, 0, 0);
+                        const hh = d.getHours().toString().padStart(2, '0');
+                        const mm = d.getMinutes().toString().padStart(2, '0');
+                        return `${hh}:${mm}`;
+                      })()}
                       selectedTime={(() => {
                         const base = new Date();
                         const currentHour = base.getHours() + base.getMinutes() / 60;
