@@ -1,9 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 import { Text, Slider, Switch, Input, Button, Checkbox, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel } from '@fluentui/react-components';
 import { DatePicker } from '@fluentui/react-datepicker-compat';
 import { TimePicker } from '@fluentui/react-timepicker-compat';
+
+import layerIcon from './icon/layer.svg';
+import eyeIcon from './icon/eye.svg';
+import hideIcon from './icon/hide.svg';
+import lockIcon from './icon/lock.svg';
+import unlockIcon from './icon/unlock.svg';
+import angleIcon from './icon/angle.svg';
 
 import { useSettings } from './hooks/useSettings';
 import { useThreeScene } from './hooks/useThreeScene';
@@ -113,6 +120,94 @@ function hsvToHex(color: Hsv): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const hasChildren = layer.children && layer.children.length > 0;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          padding: '0 0 0 16px',
+          paddingLeft: 16 + depth * 16
+        }}
+      >
+        <div
+          onClick={(e) => {
+             e.stopPropagation();
+             if (hasChildren) setIsExpanded(!isExpanded);
+          }}
+          style={{
+            width: 14,
+            height: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: hasChildren ? 'pointer' : 'default'
+          }}
+        >
+          {hasChildren && (
+            <img 
+              src={angleIcon} 
+              style={{ 
+                width: 14, 
+                height: 14,
+                transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                transition: 'transform 0.1s ease-in-out'
+              }} 
+              alt={isExpanded ? "Collapse" : "Expand"} 
+            />
+          )}
+        </div>
+
+        <img src={layerIcon} style={{ width: 14, height: 14 }} alt="Layer" />
+        <Text size={200} style={{ marginLeft: 4, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {layer.name}
+        </Text>
+        
+        <Button
+          appearance="transparent"
+          icon={<img src={layer.visible ? eyeIcon : hideIcon} style={{ width: 14, height: 14 }} alt={layer.visible ? "Visible" : "Hidden"} />}
+          onClick={() => onToggleVisibility(layer.index, !layer.visible)}
+          title={layer.visible ? 'Hide Layer' : 'Show Layer'}
+          size="small"
+          style={{ minWidth: 24, padding: 0 }}
+        />
+        <Button
+          appearance="transparent"
+          icon={<img src={layer.locked ? lockIcon : unlockIcon} style={{ width: 14, height: 14 }} alt={layer.locked ? "Locked" : "Unlocked"} />}
+          onClick={() => onToggleLock(layer.index, !layer.locked)}
+          title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
+          size="small"
+          style={{ minWidth: 24, padding: 0 }}
+        />
+      </div>
+      {hasChildren && isExpanded && (
+        <LayerTree layers={layer.children} depth={depth + 1} onToggleVisibility={onToggleVisibility} onToggleLock={onToggleLock} />
+      )}
+    </div>
+  );
+}
+
+function LayerTree({ layers, depth = 0, onToggleVisibility, onToggleLock }: any) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {layers.map((layer: any) => (
+        <LayerNode
+          key={layer.id || layer.index}
+          layer={layer}
+          depth={depth}
+          onToggleVisibility={onToggleVisibility}
+          onToggleLock={onToggleLock}
+        />
+      ))}
+    </div>
+  );
+}
+
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -180,7 +275,8 @@ function App() {
       loadingProgress,
       handleFileChange,
       layers,
-      setLayerVisibility
+      setLayerVisibility,
+      setLayerLocked
   } = useRhinoLoader(
       sceneRef,
       cameraRef,
@@ -264,6 +360,8 @@ function App() {
           }
       });
   }, [sceneRef, displayMode]);
+
+
 
   return (
     <div style={{ display: 'flex', width: '100%', height: '100vh' }}>
@@ -582,7 +680,7 @@ function App() {
                       freeform
                       style={{ width: '100%', boxSizing: 'border-box' }}
                       disabled={!settings.shadows}
-                      placeholder="请选择时间"
+                      placeholder="10:30"
                       selectedTime={(() => {
                         const base = new Date();
                         const hourValue = settings.hour ?? 10.5;
@@ -613,26 +711,8 @@ function App() {
         <Text weight="semibold" size={200}>
           图层
         </Text>
-        <div className="layers-list">
-          {layers.map(layer => (
-            <div
-              key={layer.index}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '2px 0',
-                cursor: 'pointer'
-              }}
-              onClick={() => setLayerVisibility(layer.index, !layer.visible)}
-            >
-              <Checkbox
-                checked={layer.visible}
-                onChange={(_, data) => setLayerVisibility(layer.index, !!data.checked)}
-              />
-              <Text size={200}>{layer.name}</Text>
-            </div>
-          ))}
+        <div className="layers-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
           {layers.length === 0 && (
             <Text size={100} style={{ color: 'rgba(0,0,0,0.45)' }}>
               加载模型以查看图层

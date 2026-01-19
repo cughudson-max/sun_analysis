@@ -84,7 +84,14 @@ export function useSelection(
     };
 
     const handleSelection = (objects: THREE.Object3D[], shiftKey: boolean) => {
-        const validObjects = objects.filter(o => o instanceof THREE.Mesh && !isInMeasurements(o) && o.name !== 'HighlightLine' && o.name !== 'HighlightPoint' && o.name !== 'Ground');
+        const validObjects = objects.filter(o => 
+            o instanceof THREE.Mesh && 
+            !isInMeasurements(o) && 
+            o.name !== 'HighlightLine' && 
+            o.name !== 'HighlightPoint' && 
+            o.name !== 'Ground' &&
+            !o.userData.isLocked
+        );
         const newSelection = shiftKey ? new Set(selectedObjectsRef.current) : new Set<string>();
     
         validObjects.forEach(obj => {
@@ -222,7 +229,8 @@ export function useSelection(
                     !isInMeasurements(hit.object) &&
                     hit.object.name !== 'HighlightLine' &&
                     hit.object.name !== 'HighlightPoint' &&
-                    hit.object.name !== 'Ground';
+                    hit.object.name !== 'Ground' &&
+                    !hit.object.userData.isLocked;
           });
     
           if (validIntersects.length > 0) {

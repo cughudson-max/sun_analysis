@@ -29,6 +29,11 @@ body {
 }
 
 /* Loader Style */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .loader {
   width: 12px;
   height: 12px;
@@ -145,7 +150,6 @@ body {
 }
 
 .layers-list {
-  max-height: 140px;
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-width: none;
