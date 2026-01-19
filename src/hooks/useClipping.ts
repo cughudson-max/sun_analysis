@@ -174,6 +174,28 @@ export function useClipping(
         updateMaterials();
     }, [updatePlaneFromMesh, updateMaterials]);
 
+    const alignToAxis = useCallback((axis: 'x' | 'y' | 'z') => {
+        if (!planeMeshRef.current) return;
+        const mesh = planeMeshRef.current;
+        
+        // Reset rotation first
+        mesh.rotation.set(0, 0, 0);
+
+        // PlaneGeometry normal is +Z (0,0,1)
+        if (axis === 'x') {
+            // Align +Z to +X: Rotate Y +90
+            mesh.rotation.y = Math.PI / 2;
+        } else if (axis === 'y') {
+            // Align +Z to +Y: Rotate X -90
+            mesh.rotation.x = -Math.PI / 2;
+        } else if (axis === 'z') {
+            // Align +Z to +Z: No rotation
+        }
+
+        updatePlaneFromMesh();
+        updateMaterials();
+    }, [updatePlaneFromMesh, updateMaterials]);
+
     // Update materials whenever active state changes or external trigger
     useEffect(() => {
         updateMaterials();
@@ -183,6 +205,7 @@ export function useClipping(
         isClippingActive,
         toggleClipping,
         updateMaterials,
-        flipClipping
+        flipClipping,
+        alignToAxis
     };
 }

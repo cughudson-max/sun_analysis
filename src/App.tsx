@@ -293,7 +293,7 @@ function App() {
   );
 
   // Clipping
-  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials, flipClipping } = useClipping(
+  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials, flipClipping, alignToAxis } = useClipping(
     sceneRef,
     cameraRef,
     rendererRef,
@@ -733,10 +733,15 @@ function App() {
                   />
                 </div>
                 {isClippingActive && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                      <Button size="small" onClick={flipClipping} style={{ width: '100%' }}>
-                        反转方向
-                      </Button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 8 }}>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            <Button size="small" onClick={() => alignToAxis('x')} style={{ flex: 1 }}>X轴</Button>
+                            <Button size="small" onClick={() => alignToAxis('y')} style={{ flex: 1 }}>Y轴</Button>
+                            <Button size="small" onClick={() => alignToAxis('z')} style={{ flex: 1 }}>Z轴</Button>
+                        </div>
+                        <Button size="small" onClick={flipClipping} style={{ width: '100%' }}>
+                            反转方向
+                        </Button>
                     </div>
                 )}
               </div>
