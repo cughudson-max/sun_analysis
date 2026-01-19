@@ -293,7 +293,7 @@ function App() {
   );
 
   // Clipping
-  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials } = useClipping(
+  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials, flipClipping } = useClipping(
     sceneRef,
     cameraRef,
     rendererRef,
@@ -732,6 +732,13 @@ function App() {
                     style={{ marginLeft: 'auto' }}
                   />
                 </div>
+                {isClippingActive && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                      <Button size="small" onClick={flipClipping} style={{ width: '100%' }}>
+                        反转方向
+                      </Button>
+                    </div>
+                )}
               </div>
             </AccordionPanel>
           </AccordionItem>

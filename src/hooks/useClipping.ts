@@ -60,8 +60,13 @@ export function useClipping(
                         child.material.clipShadows = true;
                     }
                 }
-                // Need to flag material update? Usually modifying clippingPlanes array reference is enough if renderer.localClippingEnabled is set.
-                // But safer to assume we might need to toggle it.
+            } else if (child instanceof THREE.LineSegments && child.name === 'SurfaceEdge') {
+                 const parentLocked = child.parent?.userData?.isLocked;
+                 if (parentLocked) {
+                     (child.material as THREE.LineBasicMaterial).clippingPlanes = [];
+                 } else {
+                     (child.material as THREE.LineBasicMaterial).clippingPlanes = plane;
+                 }
             }
         });
     }, [isClippingActive]);
@@ -162,6 +167,13 @@ export function useClipping(
         }
     }, [isClippingActive, updatePlaneFromMesh, sceneRef, cameraRef, rendererRef, controlsRef]);
 
+    const flipClipping = useCallback(() => {
+        if (!planeMeshRef.current) return;
+        planeMeshRef.current.rotateX(Math.PI);
+        updatePlaneFromMesh();
+        updateMaterials();
+    }, [updatePlaneFromMesh, updateMaterials]);
+
     // Update materials whenever active state changes or external trigger
     useEffect(() => {
         updateMaterials();
@@ -170,6 +182,7 @@ export function useClipping(
     return {
         isClippingActive,
         toggleClipping,
-        updateMaterials
+        updateMaterials,
+        flipClipping
     };
 }
