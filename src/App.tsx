@@ -451,7 +451,7 @@ function App() {
 
         <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
           <AccordionItem value="display">
-            <AccordionHeader>
+            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>显示</Text>
             </AccordionHeader>
             <AccordionPanel>
@@ -603,7 +603,7 @@ function App() {
           </AccordionItem>
 
           <AccordionItem value="shadows">
-            <AccordionHeader>
+            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>阴影</Text>
             </AccordionHeader>
             <AccordionPanel>
@@ -719,7 +719,7 @@ function App() {
           </AccordionItem>
 
           <AccordionItem value="clipping">
-            <AccordionHeader>
+            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>剖切</Text>
             </AccordionHeader>
             <AccordionPanel>
