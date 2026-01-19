@@ -37,7 +37,9 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     ambientIntensity: 1.0,
     ambientColor: '#ffffff',
     brightness: 5,
-    hour: 10.5
+    month: new Date().getMonth() + 1,
+    day: new Date().getDate(),
+    hour: new Date().getHours() + new Date().getMinutes() / 60
 };
 
 export function useSettings() {

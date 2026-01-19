@@ -11,6 +11,7 @@ import hideIcon from './icon/hide.svg';
 import lockIcon from './icon/lock.svg';
 import unlockIcon from './icon/unlock.svg';
 import angleIcon from './icon/angle.svg';
+import solidAngleIcon from './icon/SolidAngle.svg';
 
 import { useSettings } from './hooks/useSettings';
 import { useThreeScene } from './hooks/useThreeScene';
@@ -432,7 +433,7 @@ function App() {
           flexShrink: 0,
           height: '100%',
           boxSizing: 'border-box',
-          padding: 12,
+          padding: 6,
           backgroundColor: 'rgb(234, 236, 240)',
           borderLeft: '1px solid #d1d1d1',
           color: '#000000',
@@ -446,7 +447,7 @@ function App() {
 
         <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
           <AccordionItem value="display">
-            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
+            <AccordionHeader expandIcon={<img src={solidAngleIcon} alt="expand" width={10} height={10} className="accordion-expand-icon" style={{ paddingRight: 4 }} />} style={{ minHeight: '24px', height: '24px', maxHeight: '24px', background: 'linear-gradient(180deg, #dedede, #ababab)', borderRadius: '3px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: '0 8px' } }}>
               <Text weight="semibold" size={200}>显示设置</Text>
             </AccordionHeader>
             <AccordionPanel style={{ padding: '4px 0 4px 4px', margin: 0 }}>
@@ -598,7 +599,7 @@ function App() {
           </AccordionItem>
 
           <AccordionItem value="shadows">
-            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
+            <AccordionHeader expandIcon={<img src={solidAngleIcon} alt="expand" width={10} height={10} className="accordion-expand-icon" style={{ paddingRight: 4 }} />} style={{ minHeight: '24px', height: '24px', maxHeight: '24px', background: 'linear-gradient(180deg, #dedede, #ababab)', borderRadius: '3px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: '0 8px' } }}>
               <Text weight="semibold" size={200}>阴影设置</Text>
             </AccordionHeader>
             <AccordionPanel style={{ padding: '4px 0 4px 4px', margin: 0 }}>
@@ -663,7 +664,7 @@ function App() {
                       disabled={!settings.shadows}
                       value={
                         new Date(
-                          2000,
+                          new Date().getFullYear(),
                           (settings.month ?? new Date().getMonth() + 1) - 1,
                           settings.day ?? new Date().getDate()
                         )
@@ -688,10 +689,11 @@ function App() {
                       freeform
                       style={{ width: '100%', boxSizing: 'border-box' }}
                       disabled={!settings.shadows}
-                      placeholder="10:30"
+                      placeholder="选择时间"
                       selectedTime={(() => {
                         const base = new Date();
-                        const hourValue = settings.hour ?? 10.5;
+                        const currentHour = base.getHours() + base.getMinutes() / 60;
+                        const hourValue = settings.hour ?? currentHour;
                         const h = Math.floor(hourValue);
                         const m = Math.round((hourValue - h) * 60);
                         const d = new Date(base);
@@ -718,13 +720,10 @@ function App() {
 
         <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
 
-        <Text weight="semibold" size={200}>
-          图层
-        </Text>
-        <div className="layers-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        <div className="layers-list" style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #d1d1d1', backgroundColor: '#fff' }}>
           <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
           {layers.length === 0 && (
-            <Text size={100} style={{ color: 'rgba(0,0,0,0.45)' }}>
+            <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center' }}>
               加载模型以查看图层
             </Text>
           )}
