@@ -64,8 +64,8 @@ export function useClipping(
                                         for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                             plane = clippingPlanes[ i ];
                                             if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.05 ) {
-                                                gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.1 ) {
+                                                gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
                                                 return;
                                             }
                                         }
@@ -89,8 +89,8 @@ export function useClipping(
                                     for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                         plane = clippingPlanes[ i ];
                                         if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.05 ) {
-                                            gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.1 ) {
+                                            gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
                                             return;
                                         }
                                     }
