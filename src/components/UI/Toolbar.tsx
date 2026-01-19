@@ -22,6 +22,10 @@ interface ToolbarProps {
     onClear: () => void;
     onToggleProjection: () => void;
     onChangeDisplayMode: (mode: 'shade' | 'shadeWithEdge' | 'wireframe') => void;
+    isClippingActive: boolean;
+    onToggleClipping: () => void;
+    onFlipClipping: () => void;
+    onAlignToAxis: (axis: 'x' | 'y' | 'z') => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({

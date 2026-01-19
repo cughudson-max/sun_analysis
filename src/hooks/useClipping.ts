@@ -54,7 +54,7 @@ export function useClipping(
                         child.material.forEach(m => {
                             m.clippingPlanes = plane;
                             m.clipShadows = true; 
-                            m.onBeforeCompile = (shader: THREE.Shader) => {
+                            m.onBeforeCompile = (shader: any) => {
                                 shader.fragmentShader = shader.fragmentShader.replace(
                                     '#include <clipping_planes_fragment>',
                                     `
@@ -79,7 +79,7 @@ export function useClipping(
                     } else {
                         child.material.clippingPlanes = plane;
                         child.material.clipShadows = true;
-                        child.material.onBeforeCompile = (shader: THREE.Shader) => {
+                        child.material.onBeforeCompile = (shader: any) => {
                             shader.fragmentShader = shader.fragmentShader.replace(
                                 '#include <clipping_planes_fragment>',
                                 `
@@ -164,12 +164,17 @@ export function useClipping(
             });
             const mesh = new THREE.Mesh(geometry, material);
             mesh.name = "ClippingPlaneHelper";
-            mesh.position.set(0, 0, 0);
-            mesh.lookAt(0, -1, 0); // Default normal up? 
+            
+            if (controlsRef.current && controlsRef.current.target) {
+                mesh.position.copy(controlsRef.current.target);
+            } else {
+                mesh.position.set(0, 0, 0);
+            }
+            
             // Default plane is (0,1,0), so normal is Y+.
             // PlaneGeometry is in XY plane (normal Z+). 
             // To make mesh normal Y+, rotate -90 deg around X.
-            mesh.rotation.x = -Math.PI / 2;
+            mesh.rotation.set(-Math.PI / 2, 0, 0);
 
             sceneRef.current.add(mesh);
             planeMeshRef.current = mesh;

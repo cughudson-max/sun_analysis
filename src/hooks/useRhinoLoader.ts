@@ -254,12 +254,19 @@ export function useRhinoLoader(
 
                 if (foundLayers.size > 0) {
                     const nextState: Record<string, { visible: boolean; locked: boolean }> = {};
-                    const nextLayers: { index: number; name: string; visible: boolean; locked: boolean }[] = [];
+                    const nextLayers: { index: number; name: string; visible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[] = [];
                     foundLayers.forEach(index => {
                         const key = `layer_${index}`;
                         const name = `Layer ${index}`;
                         nextState[key] = { visible: true, locked: false };
-                        nextLayers.push({ index, name, visible: true, locked: false });
+                        nextLayers.push({ 
+                            index, 
+                            name, 
+                            visible: true, 
+                            locked: false,
+                            id: `layer_id_${index}`,
+                            parentLayerId: '00000000-0000-0000-0000-000000000000'
+                        });
                     });
                     layerStateRef.current = nextState;
                     setLayers(nextLayers);

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
-import { Text, Slider, Switch, Input, Button, Checkbox, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel } from '@fluentui/react-components';
+import { Text, Slider, Switch, Input, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel } from '@fluentui/react-components';
 import { DatePicker } from '@fluentui/react-datepicker-compat';
 import { TimePicker } from '@fluentui/react-timepicker-compat';
 
@@ -713,7 +713,7 @@ function App() {
                         d.setHours(h, m, 0, 0);
                         return d;
                       })()}
-                      onTimeChange={(_, data) => {
+                      onTimeChange={(_: any, data: any) => {
                         if (!data.selectedTime) return;
                         const hours = data.selectedTime.getHours();
                         const minutes = data.selectedTime.getMinutes();
