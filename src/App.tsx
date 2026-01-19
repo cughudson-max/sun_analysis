@@ -736,7 +736,7 @@ function App() {
         <div className="layers-list" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #d1d1d1', backgroundColor: '#fff' }}>
           <div style={{ display: 'flex', alignItems: 'center', height: 24, backgroundColor: '#f5f5f5', borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', borderRight: '1px solid #e0e0e0' }}>
-              <Text size={200} weight="semibold">图层名称</Text>
+              <Text size={200}>图层名称</Text>
             </div>
             <div style={{ width: 26, height: '100%', borderRight: '1px solid #e0e0e0', boxSizing: 'border-box' }} />
             <div style={{ width: 26, height: '100%' }} />
