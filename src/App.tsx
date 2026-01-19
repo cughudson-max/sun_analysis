@@ -132,8 +132,8 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
           display: 'flex',
           alignItems: 'center',
           gap: 2,
-          padding: '0 0 0 16px',
-          paddingLeft: 16 + depth * 16
+          padding: '0 0 0 4px',
+          paddingLeft: depth === 0 ? 4 : 16 + depth * 16
         }}
       >
         <div
@@ -429,7 +429,7 @@ function App() {
           height: '100%',
           boxSizing: 'border-box',
           padding: 12,
-          backgroundColor: '#ffffff',
+          backgroundColor: 'rgb(234, 246, 240)',
           color: '#000000',
           display: 'flex',
           flexDirection: 'column',
@@ -451,10 +451,10 @@ function App() {
 
         <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
           <AccordionItem value="display">
-            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
-              <Text weight="semibold" size={200}>显示</Text>
+            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
+              <Text weight="semibold" size={200}>显示设置</Text>
             </AccordionHeader>
-            <AccordionPanel>
+            <AccordionPanel style={{ padding: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
@@ -603,10 +603,10 @@ function App() {
           </AccordionItem>
 
           <AccordionItem value="shadows">
-            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
-              <Text weight="semibold" size={200}>阴影</Text>
+            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
+              <Text weight="semibold" size={200}>阴影设置</Text>
             </AccordionHeader>
-            <AccordionPanel>
+            <AccordionPanel style={{ padding: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
@@ -719,10 +719,10 @@ function App() {
           </AccordionItem>
 
           <AccordionItem value="clipping">
-            <AccordionHeader button={{ style: { maxHeight: '24px', padding: 0 } }}>
+            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>剖切</Text>
             </AccordionHeader>
-            <AccordionPanel>
+            <AccordionPanel style={{ padding: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>开启剖切</Text>

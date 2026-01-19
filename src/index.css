@@ -151,8 +151,10 @@ body {
 
 .layers-list {
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 4px;
   scrollbar-width: none;
+  background-color: white;
+  border: 1px solid #aaa;
 }
 
 .layers-list::-webkit-scrollbar {
