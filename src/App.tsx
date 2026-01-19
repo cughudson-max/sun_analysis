@@ -429,7 +429,7 @@ function App() {
           height: '100%',
           boxSizing: 'border-box',
           padding: 12,
-          backgroundColor: 'rgb(234, 246, 240)',
+          backgroundColor: 'rgb(234, 236, 240)',
           color: '#000000',
           display: 'flex',
           flexDirection: 'column',
