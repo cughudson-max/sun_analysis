@@ -59,7 +59,7 @@ export function useSettings() {
                             displayMode = DEFAULT_SETTINGS.displayMode;
                         }
                     }
-                    const { showEdges, ...rest } = parsed;
+                    const { showEdges, month, day, hour, ...rest } = parsed;
                     return { ...prev, ...rest, displayMode };
                 });
             }
