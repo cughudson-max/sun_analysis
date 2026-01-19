@@ -9,6 +9,8 @@ import perspectiveIcon from '../../icon/Perspective.svg';
 import shadeIcon from '../../icon/shade.svg';
 import shadeWithEdgeIcon from '../../icon/shadeWithEdge.svg';
 import wireframeIcon from '../../icon/wireframe.svg';
+import sectionIcon from '../../icon/section.svg';
+import sectionActiveIcon from '../../icon/section_active.svg';
 
 interface ToolbarProps {
     isMeasureActive: boolean;
@@ -31,24 +33,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onRedo,
     onClear,
     onToggleProjection,
-    onChangeDisplayMode
+    onChangeDisplayMode,
+    isClippingActive,
+    onToggleClipping,
+    onFlipClipping,
+    onAlignToAxis
 }) => {
     const [isDisplayMenuOpen, setIsDisplayMenuOpen] = useState(false);
     const displayModeRef = useRef<HTMLDivElement | null>(null);
+    const [isClippingMenuOpen, setIsClippingMenuOpen] = useState(false);
+    const clippingModeRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        if (!isDisplayMenuOpen) return;
         const handleClick = (event: MouseEvent) => {
-            if (!displayModeRef.current) return;
-            if (!displayModeRef.current.contains(event.target as Node)) {
+            if (isDisplayMenuOpen && displayModeRef.current && !displayModeRef.current.contains(event.target as Node)) {
                 setIsDisplayMenuOpen(false);
             }
+            if (isClippingMenuOpen && clippingModeRef.current && !clippingModeRef.current.contains(event.target as Node)) {
+                setIsClippingMenuOpen(false);
+            }
         };
-        window.addEventListener('mousedown', handleClick);
+
+        if (isDisplayMenuOpen || isClippingMenuOpen) {
+            window.addEventListener('mousedown', handleClick);
+        }
         return () => {
             window.removeEventListener('mousedown', handleClick);
         };
-    }, [isDisplayMenuOpen]);
+    }, [isDisplayMenuOpen, isClippingMenuOpen]);
 
     const currentDisplayIcon =
         displayMode === 'shade'
@@ -125,6 +137,68 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           >
               <img src={redoIcon} alt="Redo" width={18} height={18} />
           </button>
+
+          <div className="toolbar-display-mode" ref={clippingModeRef}>
+              <button
+                  className={`toolbar-btn ${isClippingActive ? 'active' : ''}`}
+                  onClick={() => setIsClippingMenuOpen((prev) => !prev)}
+                  title="剖切"
+              >
+                  <img src={isClippingActive ? sectionActiveIcon : sectionIcon} alt="剖切" width={18} height={18} />
+              </button>
+              {isClippingMenuOpen && (
+                  <div className="toolbar-menu" style={{ width: '120px' }}>
+                      <button
+                          className={`toolbar-menu-item ${isClippingActive ? 'active' : ''}`}
+                          onClick={() => {
+                              onToggleClipping();
+                          }}
+                          title={isClippingActive ? "禁用剖切" : "启用剖切"}
+                          style={{ width: '100%', color: '#fff', height: '24px' }}
+                      >
+                          <span style={{ fontSize: '12px' }}>{isClippingActive ? "禁用" : "启用"}</span>
+                      </button>
+                      {isClippingActive && (
+                          <>
+                              <div style={{ height: 1, background: '#eee', margin: '4px 0' }} />
+                              <button
+                                  className="toolbar-menu-item"
+                                  onClick={() => onAlignToAxis('x')}
+                                  title="X 轴对齐"
+                                  style={{ width: '100%', color: '#fff', height: '24px' }}
+                              >
+                                  <span style={{ fontSize: '12px' }}>X 轴对齐</span>
+                              </button>
+                              <button
+                                  className="toolbar-menu-item"
+                                  onClick={() => onAlignToAxis('y')}
+                                  title="Y 轴对齐"
+                                  style={{ width: '100%', color: '#fff', height: '24px' }}
+                              >
+                                  <span style={{ fontSize: '12px' }}>Y 轴对齐</span>
+                              </button>
+                              <button
+                                  className="toolbar-menu-item"
+                                  onClick={() => onAlignToAxis('z')}
+                                  title="Z 轴对齐"
+                                  style={{ width: '100%', color: '#fff', height: '24px' }}
+                              >
+                                  <span style={{ fontSize: '12px' }}>Z 轴对齐</span>
+                              </button>
+                              <div style={{ height: 1, background: '#eee', margin: '4px 0' }} />
+                              <button
+                                  className="toolbar-menu-item"
+                                  onClick={onFlipClipping}
+                                  title="翻转方向"
+                                  style={{ width: '100%', color: '#fff', height: '24px' }}
+                              >
+                                  <span style={{ fontSize: '12px' }}>翻转方向</span>
+                              </button>
+                          </>
+                      )}
+                  </div>
+              )}
+          </div>
 
           <button 
               className={`toolbar-btn ${isOrtho ? 'active' : ''}`}

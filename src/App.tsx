@@ -408,6 +408,10 @@ function App() {
             })
           }
           onChangeDisplayMode={mode => updateSettings({ displayMode: mode })}
+          isClippingActive={isClippingActive}
+          onToggleClipping={toggleClipping}
+          onFlipClipping={flipClipping}
+          onAlignToAxis={alignToAxis}
         />
 
         <div ref={selectionBoxDivRef} className="selection-box"></div>
@@ -430,6 +434,7 @@ function App() {
           boxSizing: 'border-box',
           padding: 12,
           backgroundColor: 'rgb(234, 236, 240)',
+          borderLeft: '1px solid #d1d1d1',
           color: '#000000',
           display: 'flex',
           flexDirection: 'column',
@@ -437,24 +442,14 @@ function App() {
           overflow: 'hidden'
         }}
       >
-        <div style={{ marginTop: 8, marginBottom: 4 }}>
-          <Button
-            appearance="primary"
-            style={{ width: '100%' }}
-            onClick={() => document.getElementById('file-input')?.click()}
-          >
-            打开 .3dm 文件
-          </Button>
-        </div>
 
-        <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
 
         <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
           <AccordionItem value="display">
             <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>显示设置</Text>
             </AccordionHeader>
-            <AccordionPanel style={{ padding: 4 }}>
+            <AccordionPanel style={{ padding: '4px 0 4px 4px', margin: 0 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
@@ -502,8 +497,8 @@ function App() {
                         <button
                           type="button"
                           style={{
-                            width: 24,
-                            height: 24,
+                            width: 20,
+                            height: 20,
                             borderRadius: '50%',
                             border: '1px solid #d0d0d0',
                             padding: 0,
@@ -538,8 +533,8 @@ function App() {
                         <button
                           type="button"
                           style={{
-                            width: 24,
-                            height: 24,
+                            width: 20,
+                            height: 20,
                             borderRadius: '50%',
                             border: '1px solid #d0d0d0',
                             padding: 0,
@@ -573,8 +568,8 @@ function App() {
                         <button
                           type="button"
                           style={{
-                            width: 24,
-                            height: 24,
+                            width: 20,
+                            height: 20,
                             borderRadius: '50%',
                             border: '1px solid #d0d0d0',
                             padding: 0,
@@ -606,7 +601,7 @@ function App() {
             <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
               <Text weight="semibold" size={200}>阴影设置</Text>
             </AccordionHeader>
-            <AccordionPanel style={{ padding: 4 }}>
+            <AccordionPanel style={{ padding: '4px 0 4px 4px', margin: 0 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
@@ -718,35 +713,7 @@ function App() {
             </AccordionPanel>
           </AccordionItem>
 
-          <AccordionItem value="clipping">
-            <AccordionHeader style={{ minHeight: '24px', height: '24px', maxHeight: '24px' }} button={{ style: { minHeight: '24px', height: '24px', maxHeight: '24px', padding: 0 } }}>
-              <Text weight="semibold" size={200}>剖切</Text>
-            </AccordionHeader>
-            <AccordionPanel style={{ padding: 4 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                  <Text size={200} style={{ minWidth: 64 }}>开启剖切</Text>
-                  <Switch 
-                    checked={isClippingActive} 
-                    onChange={toggleClipping} 
-                    style={{ marginLeft: 'auto' }}
-                  />
-                </div>
-                {isClippingActive && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 8 }}>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            <Button size="small" onClick={() => alignToAxis('x')} style={{ flex: 1 }}>X轴</Button>
-                            <Button size="small" onClick={() => alignToAxis('y')} style={{ flex: 1 }}>Y轴</Button>
-                            <Button size="small" onClick={() => alignToAxis('z')} style={{ flex: 1 }}>Z轴</Button>
-                        </div>
-                        <Button size="small" onClick={flipClipping} style={{ width: '100%' }}>
-                            反转方向
-                        </Button>
-                    </div>
-                )}
-              </div>
-            </AccordionPanel>
-          </AccordionItem>
+
         </Accordion>
 
         <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
@@ -761,6 +728,16 @@ function App() {
               加载模型以查看图层
             </Text>
           )}
+        </div>
+
+        <div style={{ marginTop: 4 }}>
+          <Button
+            appearance="primary"
+            style={{ width: '100%' }}
+            onClick={() => document.getElementById('file-input')?.click()}
+          >
+            打开 .3dm 文件
+          </Button>
         </div>
       </div>
     </div>
