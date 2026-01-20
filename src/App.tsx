@@ -438,16 +438,16 @@ function App() {
         {modelUnit && (
             <div style={{
                 position: 'absolute',
-                bottom: 10,
-                right: 10,
+                bottom: '10px',
+                right: '10px',
                 color: '#333',
-                zIndex: 10,
+                zIndex: 100,
                 pointerEvents: 'none',
                 userSelect: 'none',
                 fontFamily: 'sans-serif',
                 fontSize: '14px'
             }}>
-                模型单位：{modelUnit}
+                模型单位:{modelUnit}
             </div>
         )}
       </div>

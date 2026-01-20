@@ -211,6 +211,7 @@ export function useSelection(
             );
     
             const allSelected = selectionBoxRef.current.select();
+            console.log(`SelectionBox found ${allSelected.length} objects`);
             handleSelection(allSelected, event.shiftKey);
     
             isSelecting = false;

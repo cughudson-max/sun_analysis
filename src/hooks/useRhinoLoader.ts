@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import { zoomToBox } from '../utils/camera-utils';
@@ -87,60 +87,67 @@ export function useRhinoLoader(
     };
 
     const updateLayerStateRecursive = (layerIndex: number, newState: Partial<{ visible: boolean; locked: boolean }>, allLayers: any[]) => {
-        // Recursive helper to find and update node
-        const updateNode = (nodes: any[]): any[] => {
+        const affectedIndices = new Set<number>();
+        
+        // 1. Update Tree and collect indices
+        const updateNode = (nodes: any[], shouldUpdate: boolean): any[] => {
             return nodes.map(node => {
-                if (node.index === layerIndex) {
-                    // Update current node
+                const isTarget = node.index === layerIndex;
+                const willUpdate = shouldUpdate || isTarget;
+                
+                if (willUpdate) {
+                    affectedIndices.add(node.index);
+                    // Update refs
+                    const key = `layer_${node.index}`;
+                    const prev = layerStateRef.current[key] || { visible: true, locked: false };
+                    layerStateRef.current[key] = { ...prev, ...newState };
+                    
                     const updatedNode = { ...node, ...newState };
-                    
-                    // Propagate to all children recursively
-                    const propagateToChildren = (children: any[]): any[] => {
-                        return children.map(child => ({
-                            ...child,
-                            ...newState,
-                            children: child.children ? propagateToChildren(child.children) : []
-                        }));
-                    };
-
-                    // Update children if they exist
                     if (node.children && node.children.length > 0) {
-                        updatedNode.children = propagateToChildren(node.children);
+                        updatedNode.children = updateNode(node.children, true);
                     }
-                    
-                    // Update refs for all affected nodes (self + children)
-                    const updateRefs = (n: any) => {
-                        const key = `layer_${n.index}`;
-                        const prev = layerStateRef.current[key] || { visible: true, locked: false };
-                        layerStateRef.current[key] = { ...prev, ...newState };
-                        
-                        // Update scene objects
-                        if (sceneRef.current) {
-                            sceneRef.current.traverse(child => {
-                                if (child.userData?.attributes?.layerIndex === n.index) {
-                                    if ('visible' in newState) child.visible = newState.visible!;
-                                    if ('locked' in newState) child.userData.isLocked = newState.locked!;
-                                }
-                            });
-                        }
-
-                        if (n.children) n.children.forEach(updateRefs);
-                    };
-                    updateRefs(updatedNode);
-
                     return updatedNode;
                 }
                 
+                // Not target, not descendant of target (yet)
                 if (node.children && node.children.length > 0) {
-                    return { ...node, children: updateNode(node.children) };
+                    return { ...node, children: updateNode(node.children, false) };
                 }
                 
                 return node;
             });
         };
         
-        return updateNode(allLayers);
+        const newLayers = updateNode(allLayers, false);
+        
+        // 2. Update Scene (Single Traversal)
+        if (sceneRef.current && affectedIndices.size > 0) {
+            sceneRef.current.traverse(child => {
+                if (child.userData?.attributes?.layerIndex !== undefined) {
+                    if (affectedIndices.has(child.userData.attributes.layerIndex)) {
+                        if ('visible' in newState) child.visible = newState.visible!;
+                        if ('locked' in newState) child.userData.isLocked = newState.locked!;
+                    }
+                }
+            });
+        }
+        
+        return newLayers;
     };
+
+    // Suppress 3DMLoader warnings globally while this hook is active
+    useEffect(() => {
+        const originalWarn = console.warn;
+        console.warn = (...args) => {
+            if (args.length > 0 && typeof args[0] === 'string' && args[0].includes('ObjectType_Annotation')) {
+                return;
+            }
+            originalWarn.apply(console, args);
+        };
+        return () => {
+            console.warn = originalWarn;
+        };
+    }, []);
 
     const load3dmFile = (url: string) => {
         const scene = sceneRef.current;
@@ -157,31 +164,37 @@ export function useRhinoLoader(
             setLoadingProgress(100);
 
             if (!unitSetRef.current) {
-                // @ts-ignore - userData.doc exists on loaded object from rhino3dm
+                // Try to get settings from userData (standard 3DMLoader) or doc (custom)
+                const settings = object.userData.settings;
                 const doc = object.userData.doc;
-                if (doc) {
-                    try {
-                        const settings = doc.settings();
-                        
-                        // Extract Unit System
-                        // rhino3dm.js usually uses methods, but we handle potential property access if API differs
-                        let unitValue = 0;
-                        if (typeof settings.modelUnitSystem === 'function') {
-                            unitValue = settings.modelUnitSystem();
-                        } else if ((settings as any).modelUnitSystem !== undefined) {
-                            const val = (settings as any).modelUnitSystem;
-                            unitValue = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
-                        } else if (typeof doc.modelUnitSystem === 'function') {
-                            // Fallback to doc.modelUnitSystem() if settings fails
-                            unitValue = doc.modelUnitSystem();
-                        }
 
-                        // Extract Absolute Tolerance
+                if (settings || doc) {
+                    try {
+                        let unitValue = 0;
                         let tolerance = 0;
-                        if (typeof settings.modelAbsoluteTolerance === 'function') {
-                            tolerance = settings.modelAbsoluteTolerance();
-                        } else if ((settings as any).modelAbsoluteTolerance !== undefined) {
-                            tolerance = (settings as any).modelAbsoluteTolerance;
+
+                        // 1. Try to get unit from settings object (which might be a plain object or rhino object)
+                        if (settings) {
+                            if (typeof settings.modelUnitSystem === 'function') {
+                                unitValue = settings.modelUnitSystem();
+                            } else if (settings.modelUnitSystem !== undefined) {
+                                const val = settings.modelUnitSystem;
+                                unitValue = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
+                            }
+                            
+                            if (typeof settings.modelAbsoluteTolerance === 'function') {
+                                tolerance = settings.modelAbsoluteTolerance();
+                            } else if (settings.modelAbsoluteTolerance !== undefined) {
+                                tolerance = settings.modelAbsoluteTolerance;
+                            }
+                        }
+                        
+                        // 2. Fallback to doc if unit not found yet and doc exists
+                        if (unitValue === 0 && doc) {
+                             if (typeof doc.modelUnitSystem === 'function') {
+                                unitValue = doc.modelUnitSystem();
+                             }
+                             // Note: doc.settings() might have failed earlier if we are here, but we can try
                         }
 
                         const unitName = UNIT_NAMES[unitValue] || 'Unknown';
@@ -201,6 +214,8 @@ export function useRhinoLoader(
                     } catch (e) {
                         console.warn('Failed to extract model unit', e);
                     }
+                } else {
+                    console.warn('No settings or doc found in userData');
                 }
             }
             

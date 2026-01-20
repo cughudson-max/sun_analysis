@@ -46,7 +46,7 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
         scene.add(originLineY);
 
         // 2. Setup Renderer
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
         renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;

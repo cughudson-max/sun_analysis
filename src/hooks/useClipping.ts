@@ -18,6 +18,91 @@ export function useClipping(
     const transformControlsRef = useRef<TransformControls | null>(null);
     const arrowHelperRef = useRef<THREE.ArrowHelper | null>(null);
 
+    // Stencil helpers
+    const stencilGroupRef = useRef<THREE.Group | null>(null);
+    const capMeshRef = useRef<THREE.Mesh | null>(null);
+
+    // Rebuild the stencil group (call this when layers visibility changes or enabling clipping)
+    const rebuildStencil = useCallback(() => {
+        if (!isClippingActive || !sceneRef.current || !planeRef.current) {
+             if (stencilGroupRef.current) {
+                 sceneRef.current?.remove(stencilGroupRef.current);
+                 stencilGroupRef.current = null;
+             }
+             return;
+        }
+
+        // 1. Create Stencil Group if needed
+        if (!stencilGroupRef.current) {
+            const group = new THREE.Group();
+            group.renderOrder = -1; // Draw first to populate stencil buffer
+            sceneRef.current.add(group);
+            stencilGroupRef.current = group;
+        }
+
+        const group = stencilGroupRef.current;
+        group.clear();
+        const plane = planeRef.current;
+
+        // 2. Traverse and clone visible unlocked meshes
+        sceneRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.userData.isModelMesh) {
+                if (child.userData.isLocked || !child.visible) return;
+                
+                const geometry = child.geometry;
+                const matrixWorld = child.matrixWorld;
+
+                // Back faces -> Increment
+                const mat0 = new THREE.MeshBasicMaterial({
+                    depthWrite: false,
+                    depthTest: false,
+                    colorWrite: false,
+                    stencilWrite: true,
+                    stencilFunc: THREE.AlwaysStencilFunc,
+                    side: THREE.BackSide,
+                    stencilFail: THREE.IncrementWrapStencilOp,
+                    stencilZFail: THREE.IncrementWrapStencilOp,
+                    stencilZPass: THREE.IncrementWrapStencilOp,
+                    clippingPlanes: [plane]
+                });
+
+                const mesh0 = new THREE.Mesh(geometry, mat0);
+                mesh0.matrixAutoUpdate = false;
+                mesh0.matrix.copy(matrixWorld);
+                group.add(mesh0);
+
+                // Front faces -> Decrement
+                const mat1 = new THREE.MeshBasicMaterial({
+                    depthWrite: false,
+                    depthTest: false,
+                    colorWrite: false,
+                    stencilWrite: true,
+                    stencilFunc: THREE.AlwaysStencilFunc,
+                    side: THREE.FrontSide,
+                    stencilFail: THREE.DecrementWrapStencilOp,
+                    stencilZFail: THREE.DecrementWrapStencilOp,
+                    stencilZPass: THREE.DecrementWrapStencilOp,
+                    clippingPlanes: [plane]
+                });
+
+                const mesh1 = new THREE.Mesh(geometry, mat1);
+                mesh1.matrixAutoUpdate = false;
+                mesh1.matrix.copy(matrixWorld);
+                group.add(mesh1);
+            }
+        });
+
+    }, [isClippingActive, sceneRef, planeRef]);
+
+    // Trigger rebuildStencil when clipping becomes active
+    useEffect(() => {
+        rebuildStencil();
+        return () => {
+            // Cleanup when unmounting or dependencies change (if needed)
+            // rebuildStencil handles cleanup if !isClippingActive
+        };
+    }, [rebuildStencil]);
+
     // Update the math plane based on the visual mesh
     const updatePlaneFromMesh = useCallback(() => {
         if (!planeMeshRef.current || !planeRef.current) return;
@@ -64,8 +149,13 @@ export function useClipping(
                                         for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                             plane = clippingPlanes[ i ];
                                             if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.2 ) {
-                                                gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
+                                            
+                                            // Calculate distance to the clipping plane
+                                            float dist = plane.w - dot( vClipPosition, plane.xyz );
+                                            // Use fwidth to create a constant screen-space width line (approx 2px)
+                                            // fwidth(dist) is the change of distance per pixel
+                                            if ( dist < 2.0 * fwidth( dist ) ) {
+                                                gl_FragColor = vec4( 0.0, 0.0, 0.0, 1.0 );
                                                 return;
                                             }
                                         }
@@ -89,8 +179,13 @@ export function useClipping(
                                     for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                         plane = clippingPlanes[ i ];
                                         if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.2 ) {
-                                            gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
+                                        
+                                        // Calculate distance to the clipping plane
+                                        float dist = plane.w - dot( vClipPosition, plane.xyz );
+                                        // Use fwidth to create a constant screen-space width line (approx 2px)
+                                        // fwidth(dist) is the change of distance per pixel
+                                        if ( dist < 2.0 * fwidth( dist ) ) {
+                                            gl_FragColor = vec4( 0.0, 0.0, 0.0, 1.0 );
                                             return;
                                         }
                                     }
@@ -178,6 +273,21 @@ export function useClipping(
 
             sceneRef.current.add(mesh);
             planeMeshRef.current = mesh;
+
+            // Add Cap Mesh for Stencil Fill
+            const capGeometry = new THREE.PlaneGeometry(1000, 1000);
+            const capMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                stencilWrite: true,
+                stencilFunc: THREE.NotEqualStencilFunc,
+                stencilRef: 0,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            });
+            const capMesh = new THREE.Mesh(capGeometry, capMaterial);
+            capMesh.renderOrder = 1; // Draw after stencil masks
+            capMesh.name = "ClippingCapMesh";
+            mesh.add(capMesh);
 
             // 2. Add Frame Helper for the plane
             const edges = new THREE.EdgesGeometry(geometry);
