@@ -68,6 +68,8 @@ export function useClipping(
                 const mesh0 = new THREE.Mesh(geometry, mat0);
                 mesh0.matrixAutoUpdate = false;
                 mesh0.matrix.copy(matrixWorld);
+                mesh0.userData.isStencil = true;
+                mesh0.raycast = () => {};
                 group.add(mesh0);
 
                 // Front faces -> Decrement
@@ -87,6 +89,8 @@ export function useClipping(
                 const mesh1 = new THREE.Mesh(geometry, mat1);
                 mesh1.matrixAutoUpdate = false;
                 mesh1.matrix.copy(matrixWorld);
+                mesh1.userData.isStencil = true;
+                mesh1.raycast = () => {};
                 group.add(mesh1);
             }
         });

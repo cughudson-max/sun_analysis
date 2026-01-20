@@ -254,6 +254,7 @@ export function useSelection(
              }
 
              return hit.object instanceof THREE.Mesh &&
+                    hit.object.userData?.isModelMesh === true &&
                     !isInMeasurements(hit.object) &&
                     hit.object.name !== 'HighlightLine' &&
                     hit.object.name !== 'HighlightPoint' &&

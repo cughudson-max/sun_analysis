@@ -226,6 +226,7 @@ export function useMeasurement(
         const intersects = raycaster.intersectObjects(scene.children, true);
         const hit = intersects.find((h) => {
             if (!(h.object instanceof THREE.Mesh)) return false;
+            if (h.object.userData?.isModelMesh !== true) return false;
             if (h.object.name === 'Ground') return false;
             if (h.object.name === 'HighlightLine') return false;
             if (h.object.name === 'MeasurementPoint') return false;

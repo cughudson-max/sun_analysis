@@ -158,7 +158,7 @@ export function useRhinoLoader(
         setLoadingProgress(0);
 
         const loader = new Rhino3dmLoader();
-        loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
+        //loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
 
         loader.load(url, (object) => {
             setIsLoading(false);
@@ -214,6 +214,31 @@ export function useRhinoLoader(
                    child.castShadow = true;
                    child.receiveShadow = true;
                    child.userData.isModelMesh = true;
+
+                   const attrs = child.userData?.attributes;
+                   if (attrs && child.geometry) {
+                       const geom: any = child.geometry;
+                       if (!geom.userData) geom.userData = {};
+                       const layerIndex = attrs.layerIndex;
+                       if (layerIndex !== undefined) {
+                           const prev = geom.userData.layerIndex;
+                           if (prev === undefined) {
+                               geom.userData.layerIndex = layerIndex;
+                           } else if (Array.isArray(prev)) {
+                               if (!prev.includes(layerIndex)) prev.push(layerIndex);
+                           } else if (prev !== layerIndex) {
+                               geom.userData.layerIndex = [prev, layerIndex];
+                           }
+                       }
+                       if (geom.userData.attributes === undefined) {
+                           geom.userData.attributes = { ...attrs };
+                       } else if (geom.userData.attributes && typeof geom.userData.attributes === 'object') {
+                           geom.userData.attributes = { ...geom.userData.attributes, ...attrs };
+                       }
+                       if (geom.userData.meshUuid === undefined) {
+                           geom.userData.meshUuid = child.uuid;
+                       }
+                   }
 
                    const edges = new THREE.EdgesGeometry(child.geometry);
                    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
