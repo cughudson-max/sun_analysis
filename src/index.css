@@ -57,8 +57,8 @@ body.cursor-crosshair * {
 
 .loader-text {
   position: absolute;
-  bottom: 10px;
-  left: 30px;
+  bottom: 8px;
+  left: 32px;
   color: #333;
   font-size: 12px;
   z-index: 2000;
@@ -74,7 +74,7 @@ body.cursor-crosshair * {
   display: flex;
   gap: 12px;
   background-color: rgba(30, 30, 30, 0.8);
-  padding: 8px 16px;
+  padding: 4px 8px;
   border-radius: 8px;
   backdrop-filter: blur(4px);
   z-index: 2000;
@@ -105,8 +105,8 @@ body.cursor-crosshair * {
   background: transparent;
   border: none;
   border-radius: 4px;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -126,8 +126,8 @@ body.cursor-crosshair * {
   background: transparent;
   border: none;
   border-radius: 4px;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -182,4 +182,20 @@ body.cursor-crosshair * {
   min-height: 28px;
   font-size: 12px;
   padding: 0 8px;
+}
+
+.shadows-settings .fui-Text {
+  padding-right: 4px;
+}
+
+.shadows-settings .fui-Combobox {
+  padding-right: 4px;
+}
+
+.shadows-settings .fui-Input {
+  padding-right: 4px;
+}
+
+.shadows-settings .fui-Combobox input {
+  padding-right: 4px;
 }

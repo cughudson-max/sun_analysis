@@ -1,9 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
-import { Text, Slider, Switch, Input, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel } from '@fluentui/react-components';
-import { DatePicker } from '@fluentui/react-datepicker-compat';
-import { TimePicker } from '@fluentui/react-timepicker-compat';
+import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel, Combobox, Option, makeStyles, useId } from '@fluentui/react-components';
 
 import layerIcon from './icon/layer.svg';
 import eyeIcon from './icon/eye.svg';
@@ -30,12 +28,28 @@ import './index.css';
 // Set Z-Up as requested
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
+const ShadowsDateTimeFields = lazy(() => import('./components/Settings/ShadowsDateTimeFields'));
+
 type Hsv = {
   h: number;
   s: number;
   v: number;
   a?: number;
 };
+
+type City = {
+  name: string;
+  lat: number;
+  lng: number;
+};
+
+const useStyles = makeStyles({
+  cityListbox: {
+    height: '240px',
+    maxHeight: '240px',
+    overflowY: 'auto',
+  },
+});
 
 function hexToHsv(hex: string): Hsv {
   let normalized = hex.trim();
@@ -217,11 +231,64 @@ function LayerTree({ layers, depth = 0, onToggleVisibility, onToggleLock }: any)
 }
 
 function App() {
+  const styles = useStyles();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 1. Settings
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, configLoaded } = useSettings();
   const displayMode = settings.displayMode || 'shadeWithEdge';
+
+  const [cities, setCities] = useState<City[]>([]);
+  const [cityQuery, setCityQuery] = useState('');
+  const [selectedCityValue, setSelectedCityValue] = useState<string | undefined>(undefined);
+  const [selectedCityText, setSelectedCityText] = useState<string>('');
+  const cityComboboxLabelId = useId('city-combobox-label');
+  const selectedCityTooltip = (() => {
+    if (!selectedCityValue) return undefined;
+    const parts = selectedCityValue.split('@@');
+    if (parts.length !== 3) return undefined;
+    const lat = Number(parts[1]);
+    const lng = Number(parts[2]);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return undefined;
+    return `经度:${lng}，纬度：${lat}`;
+  })();
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadCities = async () => {
+      try {
+        const res = await fetch('/city.json');
+        if (!res.ok) return;
+        const raw = (await res.json()) as unknown;
+        if (!Array.isArray(raw)) return;
+        const parsed: City[] = [];
+        for (const item of raw) {
+          if (!item || typeof item !== 'object') continue;
+          const maybe = item as Record<string, unknown>;
+          const name = typeof maybe.name === 'string' ? maybe.name : undefined;
+          const lat = typeof maybe.lat === 'number' ? maybe.lat : undefined;
+          const lng = typeof maybe.lng === 'number' ? maybe.lng : undefined;
+          if (!name || lat === undefined || lng === undefined) continue;
+          parsed.push({ name, lat, lng });
+        }
+        if (!isMounted) return;
+        setCities(parsed);
+        if (!selectedCityValue && cityQuery.trim() === '') {
+          const matched = parsed.find(c => Math.abs(c.lat - settings.latitude) < 1e-4 && Math.abs(c.lng - settings.longitude) < 1e-4);
+          if (matched) {
+            setSelectedCityValue(`${matched.name}@@${matched.lat}@@${matched.lng}`);
+            setSelectedCityText(matched.name);
+          }
+        }
+      } catch {
+        return;
+      }
+    };
+    void loadCities();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 2. Scene Setup
   const { 
@@ -639,7 +706,7 @@ function App() {
               <Text weight="semibold" size={200}>阴影设置</Text>
             </AccordionHeader>
             <AccordionPanel style={{ padding: '4px 0 4px 4px', margin: 0 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="shadows-settings" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
                     启用阴影
@@ -651,114 +718,59 @@ function App() {
                   />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                  <Text size={200} style={{ minWidth: 64 }}>
-                    纬度
+                  <Text id={cityComboboxLabelId} size={200} style={{ minWidth: 64 }}>
+                    城市
                   </Text>
-                  <div className="settings-control" style={{ flex: 1 }}>
-                    <Input
-                      type="number"
-                      size="medium"
-                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
-                      placeholder="纬度"
-                      value={String(settings.latitude)}
+                  <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+                    <Combobox
+                      aria-labelledby={cityComboboxLabelId}
+                      placeholder="检索城市"
                       disabled={!settings.shadows}
-                      onChange={(_, data) =>
-                        updateSettings({
-                          latitude: Math.max(-90, Math.min(90, parseFloat(data.value || '0') || 0))
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                  <Text size={200} style={{ minWidth: 64 }}>
-                    经度
-                  </Text>
-                  <div className="settings-control" style={{ flex: 1 }}>
-                    <Input
-                      type="number"
-                      size="medium"
-                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
-                      placeholder="经度"
-                      value={String(settings.longitude)}
-                      disabled={!settings.shadows}
-                      onChange={(_, data) =>
-                        updateSettings({
-                          longitude: Math.max(-180, Math.min(180, parseFloat(data.value || '0') || 0))
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                  <Text size={200} style={{ minWidth: 64 }}>
-                    日期
-                  </Text>
-                  <div className="settings-control" style={{ flex: 1 }}>
-                    <DatePicker
-                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
-                      disabled={!settings.shadows}
-                      value={
-                        new Date(
-                          new Date().getFullYear(),
-                          (settings.month ?? new Date().getMonth() + 1) - 1,
-                          settings.day ?? new Date().getDate()
-                        )
-                      }
-                      formatDate={(date) => date ? date.toLocaleDateString('zh-CN') : ''}
-                      onSelectDate={date => {
-                        if (!date) return;
-                        updateSettings({
-                          month: date.getMonth() + 1,
-                          day: date.getDate()
-                        });
-                      }}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
-                  <Text size={200} style={{ minWidth: 64 }}>
-                    时间
-                  </Text>
-                  <div className="settings-control" style={{ flex: 1 }}>
-                    <TimePicker
+                      positioning="below-start"
                       freeform
-                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
-                      disabled={!settings.shadows}
-                      placeholder="选择时间"
-                      value={(() => {
-                        const base = new Date();
-                        const currentHour = base.getHours() + base.getMinutes() / 60;
-                        const hourValue = settings.hour ?? currentHour;
-                        const h = Math.floor(hourValue);
-                        const m = Math.round((hourValue - h) * 60);
-                        const d = new Date(base);
-                        d.setHours(h, m, 0, 0);
-                        const hh = d.getHours().toString().padStart(2, '0');
-                        const mm = d.getMinutes().toString().padStart(2, '0');
-                        return `${hh}:${mm}`;
-                      })()}
-                      selectedTime={(() => {
-                        const base = new Date();
-                        const currentHour = base.getHours() + base.getMinutes() / 60;
-                        const hourValue = settings.hour ?? currentHour;
-                        const h = Math.floor(hourValue);
-                        const m = Math.round((hourValue - h) * 60);
-                        const d = new Date(base);
-                        d.setHours(h, m, 0, 0);
-                        return d;
-                      })()}
-                      onTimeChange={(_: any, data: any) => {
-                        if (!data.selectedTime) return;
-                        const hours = data.selectedTime.getHours();
-                        const minutes = data.selectedTime.getMinutes();
-                        const hourValue = hours + minutes / 60;
-                        const clamped = Math.max(0, Math.min(23.99, hourValue));
-                        updateSettings({ hour: clamped });
+                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28, paddingLeft: 0 }}
+                      title={selectedCityTooltip}
+                      input={{ style: { height: 28, minHeight: 28 }, title: selectedCityTooltip }}
+                      listbox={{ className: styles.cityListbox }}
+                      value={selectedCityValue ? selectedCityText : cityQuery}
+                      selectedOptions={selectedCityValue ? [selectedCityValue] : []}
+                      onInput={(e) => {
+                        setCityQuery((e.target as HTMLInputElement).value);
+                        setSelectedCityValue(undefined);
+                        setSelectedCityText('');
                       }}
-                    />
+                      onOptionSelect={(_, data) => {
+                        const optionValue = typeof data.optionValue === 'string' ? data.optionValue : undefined;
+                        const optionText = typeof data.optionText === 'string' ? data.optionText : undefined;
+                        if (!optionValue) return;
+                        const parts = optionValue.split('@@');
+                        if (parts.length !== 3) return;
+                        const lat = Number(parts[1]);
+                        const lng = Number(parts[2]);
+                        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+                        setSelectedCityValue(optionValue);
+                        setSelectedCityText(optionText ?? parts[0]);
+                        setCityQuery('');
+                        updateSettings({ latitude: lat, longitude: lng });
+                      }}
+                    >
+                      {(cityQuery.trim() === '' ? cities : cities.filter(c => c.name.toLowerCase().includes(cityQuery.trim().toLowerCase())))
+                        .slice(0, 100)
+                        .map(c => (
+                          <Option
+                            key={`${c.name}-${c.lat}-${c.lng}`}
+                            value={`${c.name}@@${c.lat}@@${c.lng}`}
+                            title={`经度:${c.lng}，纬度：${c.lat}`}
+                          >
+                            {c.name}
+                          </Option>
+                        ))}
+                    </Combobox>
                   </div>
                 </div>
+                <Suspense fallback={null}>
+                  <ShadowsDateTimeFields settings={settings} updateSettings={updateSettings} />
+                </Suspense>
               </div>
             </AccordionPanel>
           </AccordionItem>
@@ -787,7 +799,7 @@ function App() {
           </div>
         </div>
 
-        {(!settings.files3dm || settings.files3dm.length === 0) && (
+        {configLoaded && (!settings.files3dm || settings.files3dm.length === 0) && (
             <div style={{ marginTop: 4 }}>
             <Button
                 appearance="primary"
