@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const SETTINGS_KEY = '3dm-viewer-settings';
-
 export type DisplayMode = 'shade' | 'shadeWithEdge' | 'wireframe';
 
 export interface ViewerSettings {

@@ -143,8 +143,8 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
              if (hasChildren) setIsExpanded(!isExpanded);
           }}
           style={{
-            width: 14,
-            height: 14,
+            width: hasChildren ? 14 : 0,
+            height: hasChildren ? 14 : 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -173,7 +173,20 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
         <Button
           appearance="transparent"
           icon={<img src={layer.visible ? eyeIcon : hideIcon} style={{ width: 14, height: 14 }} alt={layer.visible ? "Visible" : "Hidden"} />}
-          onClick={() => onToggleVisibility(layer.index, !layer.visible)}
+          onClick={(e) => {
+            e.stopPropagation();
+            const indices: number[] = [];
+            const stack: any[] = [layer];
+            while (stack.length > 0) {
+              const node = stack.pop();
+              if (!node) continue;
+              indices.push(node.index);
+              if (node.children && node.children.length > 0) {
+                stack.push(...node.children);
+              }
+            }
+            onToggleVisibility(indices, !layer.visible);
+          }}
           title={layer.visible ? 'Hide Layer' : 'Show Layer'}
           size="small"
           style={{ minWidth: 24, padding: 0 }}
@@ -181,7 +194,20 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
         <Button
           appearance="transparent"
           icon={<img src={layer.locked ? lockIcon : unlockIcon} style={{ width: 14, height: 14 }} alt={layer.locked ? "Locked" : "Unlocked"} />}
-          onClick={() => onToggleLock(layer.index, !layer.locked)}
+          onClick={(e) => {
+            e.stopPropagation();
+            const indices: number[] = [];
+            const stack: any[] = [layer];
+            while (stack.length > 0) {
+              const node = stack.pop();
+              if (!node) continue;
+              indices.push(node.index);
+              if (node.children && node.children.length > 0) {
+                stack.push(...node.children);
+              }
+            }
+            onToggleLock(indices, !layer.locked);
+          }}
           title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
           size="small"
           style={{ minWidth: 24, padding: 0 }}
@@ -258,7 +284,7 @@ function App() {
   );
 
   // Clipping
-  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials, flipClipping, alignToAxis, clippingPlanes } = useClipping(
+  const { isClippingActive, toggleClipping, updateMaterials: updateClippingMaterials, flipClipping, alignToAxis, clippingPlanes, rebuildStencil } = useClipping(
     sceneRef,
     cameraRef,
     rendererRef,
@@ -287,8 +313,8 @@ function App() {
       handleFileChange,
       load3dmFile,
       layers,
-      setLayerVisibility,
-      setLayerLocked,
+      setLayerVisibilityByIndices,
+      setLayerLockedByIndices,
       modelUnit
   } = useRhinoLoader(
       sceneRef,
@@ -314,7 +340,10 @@ function App() {
 
   useEffect(() => {
     updateClippingMaterials();
-  }, [layers, updateClippingMaterials]);
+    if (isClippingActive) {
+        rebuildStencil();
+    }
+  }, [layers, updateClippingMaterials, rebuildStencil, isClippingActive]);
 
   // 7. Animation Loop
   useEffect(() => {
@@ -445,7 +474,7 @@ function App() {
                 pointerEvents: 'none',
                 userSelect: 'none',
                 fontFamily: 'sans-serif',
-                fontSize: '14px'
+                fontSize: '12px'
             }}>
                 模型单位:{modelUnit}
             </div>
@@ -769,7 +798,7 @@ function App() {
           </div>
           
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
+            <LayerTree layers={layers} onToggleVisibility={setLayerVisibilityByIndices} onToggleLock={setLayerLockedByIndices} />
             {layers.length === 0 && (
               <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center' }}>
                 加载模型以查看图层

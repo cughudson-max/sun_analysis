@@ -20,7 +20,6 @@ export function useClipping(
 
     // Stencil helpers
     const stencilGroupRef = useRef<THREE.Group | null>(null);
-    const capMeshRef = useRef<THREE.Mesh | null>(null);
 
     // Rebuild the stencil group (call this when layers visibility changes or enabling clipping)
     const rebuildStencil = useCallback(() => {
@@ -364,6 +363,7 @@ export function useClipping(
         updateMaterials,
         flipClipping,
         alignToAxis,
-        clippingPlanes: isClippingActive && planeRef.current ? [planeRef.current] : []
+        clippingPlanes: isClippingActive && planeRef.current ? [planeRef.current] : [],
+        rebuildStencil
     };
 }

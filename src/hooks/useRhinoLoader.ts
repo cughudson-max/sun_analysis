@@ -135,6 +135,59 @@ export function useRhinoLoader(
         return newLayers;
     };
 
+    const updateLayerStateByIndices = (
+        layerIndices: Set<number>,
+        newState: Partial<{ visible: boolean; locked: boolean }>,
+        allLayers: any[]
+    ) => {
+        if (layerIndices.size === 0) return allLayers;
+
+        const affectedIndices = new Set<number>();
+
+        const updateNode = (nodes: any[]): any[] => {
+            return nodes.map(node => {
+                const shouldUpdate = layerIndices.has(node.index);
+
+                const nextChildren =
+                    node.children && node.children.length > 0 ? updateNode(node.children) : node.children;
+
+                if (!shouldUpdate && nextChildren === node.children) {
+                    return node;
+                }
+
+                if (shouldUpdate) {
+                    affectedIndices.add(node.index);
+                    const key = `layer_${node.index}`;
+                    const prev = layerStateRef.current[key] || { visible: true, locked: false };
+                    layerStateRef.current[key] = { ...prev, ...newState };
+                }
+
+                const updatedNode = shouldUpdate ? { ...node, ...newState } : { ...node };
+
+                if (nextChildren !== node.children) {
+                    updatedNode.children = nextChildren;
+                }
+
+                return updatedNode;
+            });
+        };
+
+        const newLayers = updateNode(allLayers);
+
+        if (sceneRef.current && affectedIndices.size > 0) {
+            sceneRef.current.traverse(child => {
+                if (child.userData?.attributes?.layerIndex !== undefined) {
+                    if (affectedIndices.has(child.userData.attributes.layerIndex)) {
+                        if ('visible' in newState) child.visible = newState.visible!;
+                        if ('locked' in newState) child.userData.isLocked = newState.locked!;
+                    }
+                }
+            });
+        }
+
+        return newLayers;
+    };
+
     // Suppress 3DMLoader warnings globally while this hook is active
     useEffect(() => {
         const originalWarn = console.warn;
@@ -171,7 +224,6 @@ export function useRhinoLoader(
                 if (settings || doc) {
                     try {
                         let unitValue = 0;
-                        let tolerance = 0;
 
                         // 1. Try to get unit from settings object (which might be a plain object or rhino object)
                         if (settings) {
@@ -180,12 +232,6 @@ export function useRhinoLoader(
                             } else if (settings.modelUnitSystem !== undefined) {
                                 const val = settings.modelUnitSystem;
                                 unitValue = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
-                            }
-                            
-                            if (typeof settings.modelAbsoluteTolerance === 'function') {
-                                tolerance = settings.modelAbsoluteTolerance();
-                            } else if (settings.modelAbsoluteTolerance !== undefined) {
-                                tolerance = settings.modelAbsoluteTolerance;
                             }
                         }
                         
@@ -198,16 +244,6 @@ export function useRhinoLoader(
                         }
 
                         const unitName = UNIT_NAMES[unitValue] || 'Unknown';
-
-                        const unitInfo = {
-                            unit: {
-                                value: unitValue,
-                                name: unitName,
-                                description: unitName
-                            },
-                            tolerance: tolerance
-                        };
-                        console.log('Model Unit Info:', unitInfo);
 
                         setModelUnit(unitName);
                         unitSetRef.current = true;
@@ -278,6 +314,11 @@ export function useRhinoLoader(
             });
             
             sceneRef.current?.add(object);
+            
+            // Fix: Remove layerIndex from root object to prevent "Hide All" bug
+            if (object.userData && object.userData.attributes && object.userData.attributes.layerIndex !== undefined) {
+                delete object.userData.attributes.layerIndex;
+            }
 
             const builtinLayers = object.userData.layers;
             if (builtinLayers && Array.isArray(builtinLayers)) {
@@ -390,6 +431,14 @@ export function useRhinoLoader(
         setLayers(prev => updateLayerStateRecursive(index, { locked }, prev));
     };
 
+    const setLayerVisibilityByIndices = (indices: number[], visible: boolean) => {
+        setLayers(prev => updateLayerStateByIndices(new Set(indices), { visible }, prev));
+    };
+
+    const setLayerLockedByIndices = (indices: number[], locked: boolean) => {
+        setLayers(prev => updateLayerStateByIndices(new Set(indices), { locked }, prev));
+    };
+
     return {
         isLoading,
         loadingProgress,
@@ -398,6 +447,8 @@ export function useRhinoLoader(
         layers,
         setLayerVisibility,
         setLayerLocked,
+        setLayerVisibilityByIndices,
+        setLayerLockedByIndices,
         modelUnit
     };
 }
