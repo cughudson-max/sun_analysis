@@ -35,8 +35,8 @@ export function useRhinoLoader(
     const [loadingProgress, setLoadingProgress] = useState(0);
     const [modelUnit, setModelUnit] = useState<string>('');
     const unitSetRef = useRef(false);
-    const [layers, setLayers] = useState<{ index: number; name: string; visible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[]>([]);
-    const layerStateRef = useRef<Record<string, { visible: boolean; locked: boolean }>>({});
+    const [layers, setLayers] = useState<{ index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[]>([]);
+    const layerStateRef = useRef<Record<string, { isVisible: boolean; locked: boolean }>>({});
 
     // Recursive helper to build tree
     const buildLayerTree = (layers: any[]) => {
@@ -46,7 +46,7 @@ export function useRhinoLoader(
         // First pass: create nodes and map them
         layers.forEach(layer => {
             const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
-            const isVisible = layer.visible !== false;
+            const isVisible = layer.isVisible !== false && layer.visible !== false;
             const name = layer.name || `Layer ${layerIndex}`;
             const id = layer.id;
             const parentId = layer.parentLayerId;
@@ -54,13 +54,13 @@ export function useRhinoLoader(
             // Initialize state for flat lookup
             const key = `layer_${layerIndex}`;
             if (!layerStateRef.current[key]) {
-                layerStateRef.current[key] = { visible: isVisible, locked: false };
+                layerStateRef.current[key] = { isVisible, locked: false };
             }
 
             layerMap.set(id, {
                 index: layerIndex,
                 name,
-                visible: isVisible,
+                isVisible,
                 locked: false,
                 id,
                 parentLayerId: parentId,
@@ -86,21 +86,22 @@ export function useRhinoLoader(
         return rootLayers;
     };
 
-    const updateLayerStateRecursive = (layerIndex: number, newState: Partial<{ visible: boolean; locked: boolean }>, allLayers: any[]) => {
+    const updateLayerStateRecursive = (layerId: string, newState: Partial<{ isVisible: boolean; locked: boolean }>, allLayers: any[]) => {
         const affectedIndices = new Set<number>();
         
         // 1. Update Tree and collect indices
         const updateNode = (nodes: any[], shouldUpdate: boolean): any[] => {
             return nodes.map(node => {
-                const isTarget = node.index === layerIndex;
+                const isTarget = node.id === layerId;
                 const willUpdate = shouldUpdate || isTarget;
                 
                 if (willUpdate) {
-                    affectedIndices.add(node.index);
-                    // Update refs
-                    const key = `layer_${node.index}`;
-                    const prev = layerStateRef.current[key] || { visible: true, locked: false };
-                    layerStateRef.current[key] = { ...prev, ...newState };
+                    if (typeof node.index === 'number' && !Number.isNaN(node.index)) {
+                        affectedIndices.add(node.index);
+                        const key = `layer_${node.index}`;
+                        const prev = layerStateRef.current[key] || { isVisible: true, locked: false };
+                        layerStateRef.current[key] = { ...prev, ...newState };
+                    }
                     
                     const updatedNode = { ...node, ...newState };
                     if (node.children && node.children.length > 0) {
@@ -125,66 +126,13 @@ export function useRhinoLoader(
             sceneRef.current.traverse(child => {
                 if (child.userData?.attributes?.layerIndex !== undefined) {
                     if (affectedIndices.has(child.userData.attributes.layerIndex)) {
-                        if ('visible' in newState) child.visible = newState.visible!;
+                        if ('isVisible' in newState) child.visible = newState.isVisible!;
                         if ('locked' in newState) child.userData.isLocked = newState.locked!;
                     }
                 }
             });
         }
         
-        return newLayers;
-    };
-
-    const updateLayerStateByIndices = (
-        layerIndices: Set<number>,
-        newState: Partial<{ visible: boolean; locked: boolean }>,
-        allLayers: any[]
-    ) => {
-        if (layerIndices.size === 0) return allLayers;
-
-        const affectedIndices = new Set<number>();
-
-        const updateNode = (nodes: any[]): any[] => {
-            return nodes.map(node => {
-                const shouldUpdate = layerIndices.has(node.index);
-
-                const nextChildren =
-                    node.children && node.children.length > 0 ? updateNode(node.children) : node.children;
-
-                if (!shouldUpdate && nextChildren === node.children) {
-                    return node;
-                }
-
-                if (shouldUpdate) {
-                    affectedIndices.add(node.index);
-                    const key = `layer_${node.index}`;
-                    const prev = layerStateRef.current[key] || { visible: true, locked: false };
-                    layerStateRef.current[key] = { ...prev, ...newState };
-                }
-
-                const updatedNode = shouldUpdate ? { ...node, ...newState } : { ...node };
-
-                if (nextChildren !== node.children) {
-                    updatedNode.children = nextChildren;
-                }
-
-                return updatedNode;
-            });
-        };
-
-        const newLayers = updateNode(allLayers);
-
-        if (sceneRef.current && affectedIndices.size > 0) {
-            sceneRef.current.traverse(child => {
-                if (child.userData?.attributes?.layerIndex !== undefined) {
-                    if (affectedIndices.has(child.userData.attributes.layerIndex)) {
-                        if ('visible' in newState) child.visible = newState.visible!;
-                        if ('locked' in newState) child.userData.isLocked = newState.locked!;
-                    }
-                }
-            });
-        }
-
         return newLayers;
     };
 
@@ -215,6 +163,12 @@ export function useRhinoLoader(
         loader.load(url, (object) => {
             setIsLoading(false);
             setLoadingProgress(100);
+
+            const logLayers = (rawLayers: any[]) => {
+                rawLayers.forEach((layer, i) => {
+                    console.log(`[3dm] Layer[${i}]`, layer);
+                });
+            };
 
             if (!unitSetRef.current) {
                 // Try to get settings from userData (standard 3DMLoader) or doc (custom)
@@ -322,6 +276,7 @@ export function useRhinoLoader(
 
             const builtinLayers = object.userData.layers;
             if (builtinLayers && Array.isArray(builtinLayers)) {
+                logLayers(builtinLayers);
                 // Clear existing state before building new one
                 layerStateRef.current = {};
                 const tree = buildLayerTree(builtinLayers);
@@ -333,7 +288,7 @@ export function useRhinoLoader(
                         const key = `layer_${layerIndex}`;
                         const state = layerStateRef.current[key];
                         if (state) {
-                            child.visible = state.visible;
+                            child.visible = state.isVisible;
                             child.userData.isLocked = state.locked;
                         } else {
                             child.visible = true;
@@ -350,16 +305,21 @@ export function useRhinoLoader(
                 });
 
                 if (foundLayers.size > 0) {
-                    const nextState: Record<string, { visible: boolean; locked: boolean }> = {};
-                    const nextLayers: { index: number; name: string; visible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[] = [];
+                    Array.from(foundLayers)
+                        .sort((a, b) => a - b)
+                        .forEach((index, i) => {
+                            console.log(`[3dm] Layer(inferred)[${i}]`, { index, id: `layer_id_${index}` });
+                        });
+                    const nextState: Record<string, { isVisible: boolean; locked: boolean }> = {};
+                    const nextLayers: { index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[] = [];
                     foundLayers.forEach(index => {
                         const key = `layer_${index}`;
                         const name = `Layer ${index}`;
-                        nextState[key] = { visible: true, locked: false };
+                        nextState[key] = { isVisible: true, locked: false };
                         nextLayers.push({ 
                             index, 
                             name, 
-                            visible: true, 
+                            isVisible: true, 
                             locked: false,
                             id: `layer_id_${index}`,
                             parentLayerId: '00000000-0000-0000-0000-000000000000'
@@ -369,6 +329,16 @@ export function useRhinoLoader(
                     setLayers(nextLayers);
                 }
             }
+
+            let meshIndex = 0;
+            object.traverse(child => {
+                if (!(child instanceof THREE.Mesh)) return;
+                if (!child.userData?.isModelMesh) return;
+                console.log(
+                    `[3dm] MeshGeometry[${meshIndex++}] uuid=${child.uuid} name=${child.name} layerIndex=${child.userData?.attributes?.layerIndex}`,
+                    child.geometry
+                );
+            });
 
             if (dirLightRef.current?.castShadow) {
                 updateGround();
@@ -423,20 +393,12 @@ export function useRhinoLoader(
     };
 
 
-    const setLayerVisibility = (index: number, visible: boolean) => {
-        setLayers(prev => updateLayerStateRecursive(index, { visible }, prev));
+    const setLayerVisibility = (id: string, isVisible: boolean) => {
+        setLayers(prev => updateLayerStateRecursive(id, { isVisible }, prev));
     };
 
-    const setLayerLocked = (index: number, locked: boolean) => {
-        setLayers(prev => updateLayerStateRecursive(index, { locked }, prev));
-    };
-
-    const setLayerVisibilityByIndices = (indices: number[], visible: boolean) => {
-        setLayers(prev => updateLayerStateByIndices(new Set(indices), { visible }, prev));
-    };
-
-    const setLayerLockedByIndices = (indices: number[], locked: boolean) => {
-        setLayers(prev => updateLayerStateByIndices(new Set(indices), { locked }, prev));
+    const setLayerLocked = (id: string, locked: boolean) => {
+        setLayers(prev => updateLayerStateRecursive(id, { locked }, prev));
     };
 
     return {
@@ -447,8 +409,6 @@ export function useRhinoLoader(
         layers,
         setLayerVisibility,
         setLayerLocked,
-        setLayerVisibilityByIndices,
-        setLayerLockedByIndices,
         modelUnit
     };
 }

@@ -172,22 +172,12 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
         
         <Button
           appearance="transparent"
-          icon={<img src={layer.visible ? eyeIcon : hideIcon} style={{ width: 14, height: 14 }} alt={layer.visible ? "Visible" : "Hidden"} />}
+          icon={<img src={layer.isVisible ? eyeIcon : hideIcon} style={{ width: 14, height: 14 }} alt={layer.isVisible ? "Visible" : "Hidden"} />}
           onClick={(e) => {
             e.stopPropagation();
-            const indices: number[] = [];
-            const stack: any[] = [layer];
-            while (stack.length > 0) {
-              const node = stack.pop();
-              if (!node) continue;
-              indices.push(node.index);
-              if (node.children && node.children.length > 0) {
-                stack.push(...node.children);
-              }
-            }
-            onToggleVisibility(indices, !layer.visible);
+            onToggleVisibility(layer.id, !layer.isVisible);
           }}
-          title={layer.visible ? 'Hide Layer' : 'Show Layer'}
+          title={layer.isVisible ? 'Hide Layer' : 'Show Layer'}
           size="small"
           style={{ minWidth: 24, padding: 0 }}
         />
@@ -196,17 +186,7 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
           icon={<img src={layer.locked ? lockIcon : unlockIcon} style={{ width: 14, height: 14 }} alt={layer.locked ? "Locked" : "Unlocked"} />}
           onClick={(e) => {
             e.stopPropagation();
-            const indices: number[] = [];
-            const stack: any[] = [layer];
-            while (stack.length > 0) {
-              const node = stack.pop();
-              if (!node) continue;
-              indices.push(node.index);
-              if (node.children && node.children.length > 0) {
-                stack.push(...node.children);
-              }
-            }
-            onToggleLock(indices, !layer.locked);
+            onToggleLock(layer.id, !layer.locked);
           }}
           title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
           size="small"
@@ -313,8 +293,8 @@ function App() {
       handleFileChange,
       load3dmFile,
       layers,
-      setLayerVisibilityByIndices,
-      setLayerLockedByIndices,
+      setLayerVisibility,
+      setLayerLocked,
       modelUnit
   } = useRhinoLoader(
       sceneRef,
@@ -674,11 +654,11 @@ function App() {
                   <Text size={200} style={{ minWidth: 64 }}>
                     纬度
                   </Text>
-                  <div style={{ flex: 1 }}>
+                  <div className="settings-control" style={{ flex: 1 }}>
                     <Input
                       type="number"
                       size="medium"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
                       placeholder="纬度"
                       value={String(settings.latitude)}
                       disabled={!settings.shadows}
@@ -694,11 +674,11 @@ function App() {
                   <Text size={200} style={{ minWidth: 64 }}>
                     经度
                   </Text>
-                  <div style={{ flex: 1 }}>
+                  <div className="settings-control" style={{ flex: 1 }}>
                     <Input
                       type="number"
                       size="medium"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
                       placeholder="经度"
                       value={String(settings.longitude)}
                       disabled={!settings.shadows}
@@ -714,9 +694,9 @@ function App() {
                   <Text size={200} style={{ minWidth: 64 }}>
                     日期
                   </Text>
-                  <div style={{ flex: 1 }}>
+                  <div className="settings-control" style={{ flex: 1 }}>
                     <DatePicker
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
                       disabled={!settings.shadows}
                       value={
                         new Date(
@@ -740,10 +720,10 @@ function App() {
                   <Text size={200} style={{ minWidth: 64 }}>
                     时间
                   </Text>
-                  <div style={{ flex: 1 }}>
+                  <div className="settings-control" style={{ flex: 1 }}>
                     <TimePicker
                       freeform
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
                       disabled={!settings.shadows}
                       placeholder="选择时间"
                       value={(() => {
@@ -798,9 +778,9 @@ function App() {
           </div>
           
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <LayerTree layers={layers} onToggleVisibility={setLayerVisibilityByIndices} onToggleLock={setLayerLockedByIndices} />
+            <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
             {layers.length === 0 && (
-              <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center' }}>
+              <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center',fontSize:12 }}>
                 加载模型以查看图层
               </Text>
             )}

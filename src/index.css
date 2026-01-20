@@ -168,3 +168,18 @@ body.cursor-crosshair * {
 .layers-list::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
+
+.settings-control input {
+  height: 28px;
+  min-height: 28px;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.settings-control button {
+  height: 28px;
+  min-height: 28px;
+  font-size: 12px;
+  padding: 0 8px;
+}
