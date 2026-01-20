@@ -64,7 +64,7 @@ export function useClipping(
                                         for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                             plane = clippingPlanes[ i ];
                                             if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.1 ) {
+                                            if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.2 ) {
                                                 gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
                                                 return;
                                             }
@@ -89,7 +89,7 @@ export function useClipping(
                                     for ( int i = 0; i < UNION_CLIPPING_PLANES; i ++ ) {
                                         plane = clippingPlanes[ i ];
                                         if ( dot( vClipPosition, plane.xyz ) > plane.w ) discard;
-                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.1 ) {
+                                        if ( dot( vClipPosition, plane.xyz ) > plane.w - 0.2 ) {
                                             gl_FragColor = vec4( 0.2, 0.2, 0.2, 1.0 );
                                             return;
                                         }
@@ -154,7 +154,7 @@ export function useClipping(
             if (!sceneRef.current || !rendererRef.current || !cameraRef.current) return;
 
             // 1. Create Plane Mesh (Visual)
-            const geometry = new THREE.PlaneGeometry(20, 20);
+            const geometry = new THREE.PlaneGeometry(10, 10);
             const material = new THREE.MeshBasicMaterial({ 
                 color: 0xffff00, 
                 side: THREE.DoubleSide, 

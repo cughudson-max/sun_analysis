@@ -1,0 +1,9 @@
+{
+  "brightness": 5,
+  "ambientIntensity": 1,
+  "ambientColor": "#ffffff",
+  "topColor": "#3CD0FC",
+  "bottomColor": "#ffffff",
+  "EnabledShadow": false,
+  "3dm": []
+}

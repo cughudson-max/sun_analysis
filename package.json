@@ -14,6 +14,8 @@
     "@fluentui/react-datepicker-compat": "^0.6.21",
     "@fluentui/react-icons": "^2.0.316",
     "@fluentui/react-timepicker-compat": "^0.4.27",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.1",
     "lil-gui": "^0.19.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

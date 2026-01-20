@@ -14,6 +14,7 @@ export function useMeasurement(
     const measurementStartRef = useRef<THREE.Vector3 | null>(null);
     const measurementTempMarkerRef = useRef<THREE.Mesh | null>(null);
     const tempLineRef = useRef<THREE.Line | null>(null);
+    const tempLabelRef = useRef<THREE.Sprite | null>(null);
     const highlightPointRef = useRef<THREE.Mesh | null>(null);
     
     const measurePointGeometryRef = useRef<THREE.SphereGeometry | null>(null);
@@ -70,6 +71,12 @@ export function useMeasurement(
             tempLineRef.current.geometry.dispose();
             tempLineRef.current = null;
         }
+        if (tempLabelRef.current && measurementGroupRef.current) {
+            measurementGroupRef.current.remove(tempLabelRef.current);
+            tempLabelRef.current.material.map?.dispose();
+            tempLabelRef.current.material.dispose();
+            tempLabelRef.current = null;
+        }
         document.body.classList.remove('cursor-crosshair');
 
         // Remove focus from button to avoid lingering focus state
@@ -114,6 +121,12 @@ export function useMeasurement(
         }
         if (tempLineRef.current) {
             tempLineRef.current = null;
+        }
+        if (tempLabelRef.current) {
+            if (measurementGroupRef.current) measurementGroupRef.current.remove(tempLabelRef.current);
+            tempLabelRef.current.material.map?.dispose();
+            tempLabelRef.current.material.dispose();
+            tempLabelRef.current = null;
         }
         
         undoStackRef.current = [];
@@ -200,13 +213,16 @@ export function useMeasurement(
     const getSnappedPoint = (clientX: number, clientY: number, raycaster: THREE.Raycaster, mouse: THREE.Vector2): THREE.Vector3 | null => {
         const currentCamera = cameraRef.current;
         const scene = sceneRef.current;
-        if (!currentCamera || !scene) return null;
-  
-        mouse.x = (clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(clientY / window.innerHeight) * 2 + 1;
-  
+        const renderer = rendererRef.current;
+        if (!currentCamera || !scene || !renderer) return null;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+
+        mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
         raycaster.setFromCamera(mouse, currentCamera);
-  
+
         const intersects = raycaster.intersectObjects(scene.children, true);
         const hit = intersects.find((h) => {
             if (!(h.object instanceof THREE.Mesh)) return false;
@@ -235,18 +251,26 @@ export function useMeasurement(
                 const vA = new THREE.Vector3().fromBufferAttribute(posAttr, a).applyMatrix4(mesh.matrixWorld);
                 const vB = new THREE.Vector3().fromBufferAttribute(posAttr, b).applyMatrix4(mesh.matrixWorld);
                 const vC = new THREE.Vector3().fromBufferAttribute(posAttr, c).applyMatrix4(mesh.matrixWorld);
-  
-                const sphereRadius = cachedGeom.boundingSphere ? cachedGeom.boundingSphere.radius : 1;
-                const worldScale = new THREE.Vector3();
-                mesh.getWorldScale(worldScale);
-                const snapDist = sphereRadius * Math.max(worldScale.x, worldScale.y, worldScale.z) * 0.05; 
-  
-                const dA = picked.distanceTo(vA);
-                const dB = picked.distanceTo(vB);
-                const dC = picked.distanceTo(vC);
-                let snapped = picked;
+
+                // Screen space snapping (threshold in pixels)
+                const SNAP_THRESHOLD_PX = 15;
+                const width = rect.width;
+                const height = rect.height;
+
+                const getScreenDist = (v: THREE.Vector3) => {
+                    const p = v.clone().project(currentCamera);
+                    const dx = (p.x - mouse.x) * width / 2;
+                    const dy = (p.y - mouse.y) * height / 2;
+                    return Math.sqrt(dx * dx + dy * dy);
+                };
+
+                const dA = getScreenDist(vA);
+                const dB = getScreenDist(vB);
+                const dC = getScreenDist(vC);
+
                 let minD = dA;
-                snapped = vA;
+                let snapped = vA;
+
                 if (dB < minD) {
                     minD = dB;
                     snapped = vB;
@@ -255,7 +279,8 @@ export function useMeasurement(
                     minD = dC;
                     snapped = vC;
                 }
-                if (minD <= snapDist) return snapped;
+
+                if (minD <= SNAP_THRESHOLD_PX) return snapped;
             }
         }
         return picked;
@@ -287,6 +312,12 @@ export function useMeasurement(
                         tempLineRef.current.geometry.dispose();
                         tempLineRef.current = null;
                     }
+                    if (tempLabelRef.current && measurementGroupRef.current) {
+                        measurementGroupRef.current.remove(tempLabelRef.current);
+                        tempLabelRef.current.material.map?.dispose();
+                        tempLabelRef.current.material.dispose();
+                        tempLabelRef.current = null;
+                    }
                     return;
                 }
 
@@ -308,10 +339,32 @@ export function useMeasurement(
                     posAttr.needsUpdate = true;
                     geom.computeBoundingSphere();
                 }
+
+                // Update dynamic label
+                const distance = measurementStartRef.current.distanceTo(snapped);
+                const mid = measurementStartRef.current.clone().add(snapped).multiplyScalar(0.5);
+
+                if (tempLabelRef.current && measurementGroupRef.current) {
+                    measurementGroupRef.current.remove(tempLabelRef.current);
+                    tempLabelRef.current.material.map?.dispose();
+                    tempLabelRef.current.material.dispose();
+                }
+                const label = createDistanceSprite(distance.toFixed(3));
+                label.position.copy(mid);
+                label.renderOrder = 10000;
+                measurementGroupRef.current.add(label);
+                tempLabelRef.current = label;
+
             } else if (tempLineRef.current && measurementGroupRef.current) {
                 measurementGroupRef.current.remove(tempLineRef.current);
                 tempLineRef.current.geometry.dispose();
                 tempLineRef.current = null;
+                if (tempLabelRef.current) {
+                    measurementGroupRef.current.remove(tempLabelRef.current);
+                    tempLabelRef.current.material.map?.dispose();
+                    tempLabelRef.current.material.dispose();
+                    tempLabelRef.current = null;
+                }
             }
         };
 
@@ -351,6 +404,12 @@ export function useMeasurement(
                  measurementGroupRef.current.remove(tempLineRef.current);
                  tempLineRef.current.geometry.dispose();
                  tempLineRef.current = null;
+             }
+             if (tempLabelRef.current && measurementGroupRef.current) {
+                 measurementGroupRef.current.remove(tempLabelRef.current);
+                 tempLabelRef.current.material.map?.dispose();
+                 tempLabelRef.current.material.dispose();
+                 tempLabelRef.current = null;
              }
         };
 

@@ -21,6 +21,7 @@ export interface ViewerSettings {
     month?: number;
     day?: number;
     hour?: number;
+    files3dm?: string[];
 }
 
 const DEFAULT_SETTINGS: ViewerSettings = {
@@ -39,44 +40,44 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     brightness: 5,
     month: new Date().getMonth() + 1,
     day: new Date().getDate(),
-    hour: new Date().getHours() + new Date().getMinutes() / 60
+    hour: new Date().getHours() + new Date().getMinutes() / 60,
+    files3dm: []
 };
 
 export function useSettings() {
     const [settings, setSettings] = useState<ViewerSettings>(DEFAULT_SETTINGS);
 
     useEffect(() => {
-        try {
-            const saved = localStorage.getItem(SETTINGS_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                setSettings(prev => {
-                    let displayMode: DisplayMode = parsed.displayMode;
-                    if (!displayMode) {
-                        if (typeof parsed.showEdges === 'boolean') {
-                            displayMode = parsed.showEdges ? 'shadeWithEdge' : 'shade';
-                        } else {
-                            displayMode = DEFAULT_SETTINGS.displayMode;
-                        }
+        const loadConfig = async () => {
+            try {
+                const response = await fetch('/config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    
+                    if (config) {
+                        setSettings(prev => ({
+                            ...prev,
+                            brightness: config.brightness ?? prev.brightness,
+                            ambientIntensity: config.ambientIntensity ?? prev.ambientIntensity,
+                            ambientColor: config.ambientColor ?? prev.ambientColor,
+                            bgTop: config.topColor ?? prev.bgTop,
+                            bgBottom: config.bottomColor ?? prev.bgBottom,
+                            shadows: config.EnabledShadow ?? prev.shadows,
+                            files3dm: config['3dm'] ?? []
+                        }));
                     }
-                    const { showEdges, month, day, hour, ...rest } = parsed;
-                    return { ...prev, ...rest, displayMode };
-                });
+                }
+            } catch (e) {
+                console.error('Failed to load config.json', e);
             }
-        } catch (e) {
-            console.error('Failed to load settings', e);
-        }
+        };
+
+        loadConfig();
     }, []);
 
     const updateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
         setSettings(prev => {
             const updated = { ...prev, ...newSettings };
-            try {
-                const currentStored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...currentStored, ...newSettings }));
-            } catch (e) {
-                console.error('Failed to save settings', e);
-            }
             return updated;
         });
     }, []);

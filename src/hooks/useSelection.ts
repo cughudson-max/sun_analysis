@@ -131,11 +131,21 @@ export function useSelection(
           if (event.ctrlKey) {
             isSelecting = true;
             if (controlsRef.current) controlsRef.current.enabled = false;
+
+            // Ensure SelectionBox uses the current camera and scene
+            if (selectionBoxRef.current) {
+                if (cameraRef.current) selectionBoxRef.current.camera = cameraRef.current;
+                if (sceneRef.current) selectionBoxRef.current.scene = sceneRef.current;
+            }
             
+            const rect = element.getBoundingClientRect();
+            const relX = event.clientX - rect.left;
+            const relY = event.clientY - rect.top;
+
             if (selectionBoxDivRef.current) {
                 selectionBoxDivRef.current.style.display = 'block';
-                selectionBoxDivRef.current.style.left = `${event.clientX}px`;
-                selectionBoxDivRef.current.style.top = `${event.clientY}px`;
+                selectionBoxDivRef.current.style.left = `${relX}px`;
+                selectionBoxDivRef.current.style.top = `${relY}px`;
                 selectionBoxDivRef.current.style.width = '0px';
                 selectionBoxDivRef.current.style.height = '0px';
             }
@@ -143,8 +153,8 @@ export function useSelection(
             
             if (selectionBoxRef.current) {
               selectionBoxRef.current.startPoint.set(
-                (event.clientX / window.innerWidth) * 2 - 1,
-                -(event.clientY / window.innerHeight) * 2 + 1,
+                (relX / rect.width) * 2 - 1,
+                -(relY / rect.height) * 2 + 1,
                 0.5
               );
             }
@@ -155,16 +165,18 @@ export function useSelection(
     
         const onPointerMove = (event: PointerEvent) => {
           if (isSelecting && selectionBoxRef.current) {
+            const rect = element.getBoundingClientRect();
+            const relX = event.clientX - rect.left;
+            const relY = event.clientY - rect.top;
+            
+            const startRelX = startMouseRef.current.x - rect.left;
+            const startRelY = startMouseRef.current.y - rect.top;
+
             if (selectionBoxDivRef.current) {
-                const currentX = event.clientX;
-                const currentY = event.clientY;
-                const startX = startMouseRef.current.x;
-                const startY = startMouseRef.current.y;
-                
-                const newLeft = Math.min(startX, currentX);
-                const newTop = Math.min(startY, currentY);
-                const newWidth = Math.abs(currentX - startX);
-                const newHeight = Math.abs(currentY - startY);
+                const newLeft = Math.min(startRelX, relX);
+                const newTop = Math.min(startRelY, relY);
+                const newWidth = Math.abs(relX - startRelX);
+                const newHeight = Math.abs(relY - startRelY);
                 
                 selectionBoxDivRef.current.style.left = `${newLeft}px`;
                 selectionBoxDivRef.current.style.top = `${newTop}px`;
@@ -173,8 +185,8 @@ export function useSelection(
             }
     
             selectionBoxRef.current.endPoint.set(
-              (event.clientX / window.innerWidth) * 2 - 1,
-              -(event.clientY / window.innerHeight) * 2 + 1,
+              (relX / rect.width) * 2 - 1,
+              -(relY / rect.height) * 2 + 1,
               0.5
             );
           }
@@ -187,10 +199,14 @@ export function useSelection(
                 selectionBoxDivRef.current.style.width = '0px';
                 selectionBoxDivRef.current.style.height = '0px';
             }
+            
+            const rect = element.getBoundingClientRect();
+            const relX = event.clientX - rect.left;
+            const relY = event.clientY - rect.top;
     
             selectionBoxRef.current.endPoint.set(
-              (event.clientX / window.innerWidth) * 2 - 1,
-              -(event.clientY / window.innerHeight) * 2 + 1,
+              (relX / rect.width) * 2 - 1,
+              -(relY / rect.height) * 2 + 1,
               0.5
             );
     
@@ -215,9 +231,10 @@ export function useSelection(
               return;
           }
           
+          const rect = element.getBoundingClientRect();
           const mouse = new THREE.Vector2();
-          mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-          mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+          mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
           
           if (!cameraRef.current) return;
           const raycaster = new THREE.Raycaster();

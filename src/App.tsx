@@ -285,9 +285,11 @@ function App() {
       isLoading,
       loadingProgress,
       handleFileChange,
+      load3dmFile,
       layers,
       setLayerVisibility,
-      setLayerLocked
+      setLayerLocked,
+      modelUnit
   } = useRhinoLoader(
       sceneRef,
       cameraRef,
@@ -301,6 +303,14 @@ function App() {
       updateSunPosition,
       selectedObjectsRef
   );
+
+  const autoLoadRef = useRef(false);
+  useEffect(() => {
+      if (settings.files3dm && settings.files3dm.length > 0 && !autoLoadRef.current) {
+          settings.files3dm.forEach(url => load3dmFile(url));
+          autoLoadRef.current = true;
+      }
+  }, [settings.files3dm, load3dmFile]);
 
   useEffect(() => {
     updateClippingMaterials();
@@ -424,6 +434,22 @@ function App() {
           style={{ display: 'none' }}
           onChange={handleFileChange}
         />
+        
+        {modelUnit && (
+            <div style={{
+                position: 'absolute',
+                bottom: 10,
+                right: 10,
+                color: '#333',
+                zIndex: 10,
+                pointerEvents: 'none',
+                userSelect: 'none',
+                fontFamily: 'sans-serif',
+                fontSize: '14px'
+            }}>
+                模型单位：{modelUnit}
+            </div>
+        )}
       </div>
 
       <div
@@ -459,7 +485,7 @@ function App() {
                   </Text>
                   <div style={{ flex: 1 }}>
                     <Slider
-                      size="small"
+                      size="medium"
                       value={settings.brightness}
                       min={0}
                       max={20}
@@ -467,7 +493,7 @@ function App() {
                       style={{ width: '100%' }}
                     />
                   </div>
-                  <Text size={200} style={{ width: 18, textAlign: 'right' }}>
+                  <Text size={200} style={{ width: 24, textAlign: 'center' }}>
                     {Math.round(settings.brightness)}
                   </Text>
                 </div>
@@ -477,7 +503,7 @@ function App() {
                   </Text>
                   <div style={{ flex: 1 }}>
                     <Slider
-                      size="small"
+                      size="medium"
                       value={settings.ambientIntensity}
                       min={0}
                       max={3}
@@ -485,7 +511,7 @@ function App() {
                       style={{ width: '100%' }}
                     />
                   </div>
-                  <Text size={200} style={{ width: 18, textAlign: 'right' }}>
+                  <Text size={200} style={{ width: 24, textAlign: 'center' }}>
                     {Math.round(settings.ambientIntensity)}
                   </Text>
                 </div>
@@ -752,15 +778,17 @@ function App() {
           </div>
         </div>
 
-        <div style={{ marginTop: 4 }}>
-          <Button
-            appearance="primary"
-            style={{ width: '100%' }}
-            onClick={() => document.getElementById('file-input')?.click()}
-          >
-            打开 .3dm 文件
-          </Button>
-        </div>
+        {(!settings.files3dm || settings.files3dm.length === 0) && (
+            <div style={{ marginTop: 4 }}>
+            <Button
+                appearance="primary"
+                style={{ width: '100%' }}
+                onClick={() => document.getElementById('file-input')?.click()}
+            >
+                打开 .3dm 文件
+            </Button>
+            </div>
+        )}
       </div>
     </div>
   );

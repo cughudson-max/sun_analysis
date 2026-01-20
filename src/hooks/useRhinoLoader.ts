@@ -4,6 +4,20 @@ import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import { zoomToBox } from '../utils/camera-utils';
 import type { DisplayMode } from './useSettings';
 
+const UNIT_NAMES: Record<number, string> = {
+    0: 'None',
+    1: 'Angstroms',
+    2: 'Millimeters',
+    3: 'Centimeters',
+    4: 'Meters',
+    5: 'Kilometers',
+    6: 'Microinches',
+    7: 'Mils',
+    8: 'Inches',
+    9: 'Feet',
+    10: 'Miles'
+};
+
 export function useRhinoLoader(
     sceneRef: React.MutableRefObject<THREE.Scene | null>,
     cameraRef: React.MutableRefObject<THREE.Camera | null>,
@@ -19,6 +33,8 @@ export function useRhinoLoader(
 ) {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
+    const [modelUnit, setModelUnit] = useState<string>('');
+    const unitSetRef = useRef(false);
     const [layers, setLayers] = useState<{ index: number; name: string; visible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[]>([]);
     const layerStateRef = useRef<Record<string, { visible: boolean; locked: boolean }>>({});
 
@@ -126,42 +142,67 @@ export function useRhinoLoader(
         return updateNode(allLayers);
     };
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        
-        clearMeasurements();
-        
-        if (sceneRef.current) {
-            const toRemove: THREE.Object3D[] = [];
-            sceneRef.current.children.forEach(child => {
-                if (child instanceof THREE.Light) return;
-                if (child instanceof THREE.GridHelper) return;
-                if (child instanceof THREE.AxesHelper) return;
-                if (child.name === 'selection-box') return;
-                if (child.name === 'Ground') return;
-                if (child.name === 'Measurements') return;
-                if (child.name === 'HighlightPoint') return;
-                if (child.type === 'Camera') return;
-                
-                toRemove.push(child);
-            });
-            
-            toRemove.forEach(child => sceneRef.current?.remove(child));
-            selectedObjectsRef.current.clear();
-            updateHighlights();
-        }
+    const load3dmFile = (url: string) => {
+        const scene = sceneRef.current;
+        if (!scene) return;
 
-        const loader = new Rhino3dmLoader();
-        loader.setLibraryPath('/');
-        
-        const url = URL.createObjectURL(file);
         setIsLoading(true);
         setLoadingProgress(0);
-        
+
+        const loader = new Rhino3dmLoader();
+        loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
+
         loader.load(url, (object) => {
             setIsLoading(false);
             setLoadingProgress(100);
+
+            if (!unitSetRef.current) {
+                // @ts-ignore - userData.doc exists on loaded object from rhino3dm
+                const doc = object.userData.doc;
+                if (doc) {
+                    try {
+                        const settings = doc.settings();
+                        
+                        // Extract Unit System
+                        // rhino3dm.js usually uses methods, but we handle potential property access if API differs
+                        let unitValue = 0;
+                        if (typeof settings.modelUnitSystem === 'function') {
+                            unitValue = settings.modelUnitSystem();
+                        } else if ((settings as any).modelUnitSystem !== undefined) {
+                            const val = (settings as any).modelUnitSystem;
+                            unitValue = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
+                        } else if (typeof doc.modelUnitSystem === 'function') {
+                            // Fallback to doc.modelUnitSystem() if settings fails
+                            unitValue = doc.modelUnitSystem();
+                        }
+
+                        // Extract Absolute Tolerance
+                        let tolerance = 0;
+                        if (typeof settings.modelAbsoluteTolerance === 'function') {
+                            tolerance = settings.modelAbsoluteTolerance();
+                        } else if ((settings as any).modelAbsoluteTolerance !== undefined) {
+                            tolerance = (settings as any).modelAbsoluteTolerance;
+                        }
+
+                        const unitName = UNIT_NAMES[unitValue] || 'Unknown';
+
+                        const unitInfo = {
+                            unit: {
+                                value: unitValue,
+                                name: unitName,
+                                description: unitName
+                            },
+                            tolerance: tolerance
+                        };
+                        console.log('Model Unit Info:', unitInfo);
+
+                        setModelUnit(unitName);
+                        unitSetRef.current = true;
+                    } catch (e) {
+                        console.warn('Failed to extract model unit', e);
+                    }
+                }
+            }
             
             object.traverse((child) => {
                 if (child instanceof THREE.Mesh) {
@@ -293,6 +334,39 @@ export function useRhinoLoader(
         });
     };
 
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        
+        clearMeasurements();
+        setModelUnit('');
+        unitSetRef.current = false;
+        
+        if (sceneRef.current) {
+            const toRemove: THREE.Object3D[] = [];
+            sceneRef.current.children.forEach(child => {
+                if (child instanceof THREE.Light) return;
+                if (child instanceof THREE.GridHelper) return;
+                if (child instanceof THREE.AxesHelper) return;
+                if (child.name === 'selection-box') return;
+                if (child.name === 'Ground') return;
+                if (child.name === 'Measurements') return;
+                if (child.name === 'HighlightPoint') return;
+                if (child.type === 'Camera') return;
+                
+                toRemove.push(child);
+            });
+            
+            toRemove.forEach(child => sceneRef.current?.remove(child));
+            selectedObjectsRef.current.clear();
+            updateHighlights();
+        }
+
+        const url = URL.createObjectURL(file);
+        load3dmFile(url);
+    };
+
+
     const setLayerVisibility = (index: number, visible: boolean) => {
         setLayers(prev => updateLayerStateRecursive(index, { visible }, prev));
     };
@@ -305,8 +379,10 @@ export function useRhinoLoader(
         isLoading,
         loadingProgress,
         handleFileChange,
+        load3dmFile,
         layers,
         setLayerVisibility,
-        setLayerLocked
+        setLayerLocked,
+        modelUnit
     };
 }
