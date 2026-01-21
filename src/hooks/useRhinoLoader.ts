@@ -30,7 +30,7 @@ export function useRhinoLoader(
     mergeGeometry: boolean,
     loadMultiFile: boolean,
     displayMode: DisplayMode,
-    updateSunPosition: () => void,
+    updateShadowFrustum: () => void,
     selectedObjectsRef: React.MutableRefObject<Set<string>>
 ) {
     const [isLoading, setIsLoading] = useState(false);
@@ -491,11 +491,12 @@ export function useRhinoLoader(
 
             if (dirLightRef.current?.castShadow) {
                 updateGround();
+                updateShadowFrustum();
             }
             
             const box = new THREE.Box3().setFromObject(object);
             if (cameraRef.current && controlsRef.current) {
-                zoomToBox(box, cameraRef.current, controlsRef.current, orthoFrustumHeightRef, dirLightRef.current || undefined, updateSunPosition);
+                zoomToBox(box, cameraRef.current, controlsRef.current, orthoFrustumHeightRef);
             }
 
         }, (xhr: ProgressEvent<EventTarget>) => {

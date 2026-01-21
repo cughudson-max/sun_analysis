@@ -57,7 +57,7 @@ export function useSelection(
       }
       
       if (!box.isEmpty()) {
-          zoomToBox(box, cameraRef.current, controlsRef.current, orthoFrustumHeightRef);
+          zoomToBox(box, cameraRef.current, controlsRef.current, orthoFrustumHeightRef, undefined, undefined, { animate: true, durationMs: 350 });
       }
     };
 
@@ -116,6 +116,22 @@ export function useSelection(
         selectedObjectsRef.current = newSelection;
         updateHighlights();
     };
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+            const target = event.target as HTMLElement | null;
+            const tagName = target?.tagName?.toLowerCase();
+            if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target?.isContentEditable) {
+                return;
+            }
+            if (selectedObjectsRef.current.size === 0) return;
+            selectedObjectsRef.current = new Set();
+            updateHighlights();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, []);
 
     useEffect(() => {
         const renderer = rendererRef.current;

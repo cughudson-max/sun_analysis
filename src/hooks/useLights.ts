@@ -119,6 +119,131 @@ export function useLights(
     const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
     const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
     const groundRef = useRef<THREE.Mesh | null>(null);
+    const shadowFitCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+
+    const isActuallyVisible = (obj: THREE.Object3D) => {
+        let cur: THREE.Object3D | null = obj;
+        while (cur) {
+            if (!cur.visible) return false;
+            cur = cur.parent;
+        }
+        return true;
+    };
+
+    const computeSceneBox = () => {
+        const box = new THREE.Box3();
+        let hasObjects = false;
+        const scene = sceneRef.current;
+        if (!scene) return { box, hasObjects };
+
+        scene.traverse((child) => {
+            if (!(child instanceof THREE.Mesh)) return;
+            if (!isActuallyVisible(child)) return;
+            if (child.name === 'Ground') return;
+            if (child.name === 'selection-box') return;
+            if (child.name === 'HighlightLine') return;
+            if (child.name === 'HighlightPoint') return;
+            if (child instanceof THREE.GridHelper) return;
+            if (child instanceof THREE.AxesHelper) return;
+
+            box.expandByObject(child);
+            hasObjects = true;
+        });
+
+        if (!hasObjects) {
+            const defaultSize = 1000;
+            box.min.set(-defaultSize, -defaultSize, 0);
+            box.max.set(defaultSize, defaultSize, 0);
+        }
+
+        return { box, hasObjects };
+    };
+
+    const updateShadowFrustum = () => {
+        const dirLight = dirLightRef.current;
+        const scene = sceneRef.current;
+        if (!dirLight || !scene || !settings.shadows) return;
+
+        const { box } = computeSceneBox();
+        if (box.isEmpty()) return;
+
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+
+        const now = buildSunDate(settings);
+        const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
+        const phi = times.altitude;
+        const theta = times.azimuth;
+        const sunDir = new THREE.Vector3(
+            Math.cos(phi) * -Math.sin(theta),
+            Math.cos(phi) * -Math.cos(theta),
+            Math.sin(phi)
+        );
+        if (sunDir.lengthSq() < 1e-8) sunDir.set(1, -1, 1);
+        sunDir.normalize();
+
+        const distance = Math.max(1000, maxDim * 3);
+
+        const lightPos = center.clone().addScaledVector(sunDir, distance);
+        dirLight.target.position.copy(center);
+        dirLight.position.copy(lightPos);
+        dirLight.target.updateMatrixWorld();
+        dirLight.updateMatrixWorld();
+
+        const upZ = new THREE.Vector3(0, 0, 1);
+        const upY = new THREE.Vector3(0, 1, 0);
+        const up = Math.abs(sunDir.dot(upZ)) > 0.95 ? upY : upZ;
+
+        if (!shadowFitCameraRef.current) {
+            shadowFitCameraRef.current = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1);
+        }
+        const shadowFitCamera = shadowFitCameraRef.current;
+        shadowFitCamera.position.copy(lightPos);
+        shadowFitCamera.up.copy(up);
+        shadowFitCamera.lookAt(center);
+        shadowFitCamera.updateMatrixWorld(true);
+        const viewMatrix = shadowFitCamera.matrixWorldInverse;
+        const corners: THREE.Vector3[] = [
+            new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+        ];
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        let minZ = Infinity;
+        let maxZ = -Infinity;
+
+        for (const c of corners) {
+            c.applyMatrix4(viewMatrix);
+            minX = Math.min(minX, c.x);
+            maxX = Math.max(maxX, c.x);
+            minY = Math.min(minY, c.y);
+            maxY = Math.max(maxY, c.y);
+            minZ = Math.min(minZ, c.z);
+            maxZ = Math.max(maxZ, c.z);
+        }
+
+        const margin = Math.max(10, maxDim * 0.2);
+        const shadowCam = dirLight.shadow.camera as THREE.OrthographicCamera;
+        shadowCam.left = minX - margin;
+        shadowCam.right = maxX + margin;
+        shadowCam.bottom = minY - margin;
+        shadowCam.top = maxY + margin;
+        shadowCam.near = Math.max(0.1, -maxZ - margin);
+        shadowCam.far = Math.max(shadowCam.near + 1, -minZ + margin);
+        shadowCam.updateProjectionMatrix();
+
+        dirLight.shadow.needsUpdate = true;
+    };
 
     // Initialize Lights
     useEffect(() => {
@@ -184,6 +309,7 @@ export function useLights(
         
         if (settings.shadows) {
             updateGround();
+            updateShadowFrustum();
         } else if (groundRef.current && sceneRef.current) {
              sceneRef.current.remove(groundRef.current);
              groundRef.current = null;
@@ -194,83 +320,17 @@ export function useLights(
     // Sun Position
     useEffect(() => {
         if (!dirLightRef.current) return;
-
-        const now = buildSunDate(settings);
-        const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
-        const phi = times.altitude;
-        const theta = times.azimuth; 
-        const r = 1000;
-        
-        const x = r * Math.cos(phi) * -Math.sin(theta);
-        const y = r * Math.cos(phi) * -Math.cos(theta);
-        const z = r * Math.sin(phi);
-        
-        if (dirLightRef.current.target) {
-            const targetPos = dirLightRef.current.target.position;
-            dirLightRef.current.position.set(
-                targetPos.x + x,
-                targetPos.y + y,
-                targetPos.z + z
-            );
-        } else {
-            dirLightRef.current.position.set(x, y, z);
-        }
-        
-        dirLightRef.current.updateMatrixWorld();
+        updateShadowFrustum();
     }, [settings.latitude, settings.longitude, settings.timeZone, settings.month, settings.day, settings.hour]);
 
     const updateSunPosition = () => {
-        if (!dirLightRef.current) return;
-
-        const now = buildSunDate(settings);
-        const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
-        const phi = times.altitude;
-        const theta = times.azimuth; 
-        const r = 1000;
-        
-        const x = r * Math.cos(phi) * -Math.sin(theta);
-        const y = r * Math.cos(phi) * -Math.cos(theta);
-        const z = r * Math.sin(phi);
-        
-        if (dirLightRef.current.target) {
-            const targetPos = dirLightRef.current.target.position;
-            dirLightRef.current.position.set(
-                targetPos.x + x,
-                targetPos.y + y,
-                targetPos.z + z
-            );
-        } else {
-            dirLightRef.current.position.set(x, y, z);
-        }
-        
-        dirLightRef.current.updateMatrixWorld();
+        updateShadowFrustum();
     };
 
     const updateGround = () => {
       if (!sceneRef.current) return;
-      
-      const box = new THREE.Box3();
-      let hasObjects = false;
-      
-      sceneRef.current.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-              if (child.name === 'Ground') return;
-              if (child.name === 'selection-box') return;
-              if (child.name === 'HighlightLine') return;
-              if (child.name === 'HighlightPoint') return;
-              if (child instanceof THREE.GridHelper) return;
-              if (child instanceof THREE.AxesHelper) return;
-              
-              box.expandByObject(child);
-              hasObjects = true;
-          }
-      });
-      
-      if (!hasObjects) {
-           const defaultSize = 1000;
-           box.min.set(-defaultSize, -defaultSize, 0);
-           box.max.set(defaultSize, defaultSize, 0);
-      }
+
+      const { box } = computeSceneBox();
       
       const size = new THREE.Vector3();
       box.getSize(size);
@@ -295,5 +355,5 @@ export function useLights(
       groundRef.current = ground;
     };
 
-    return { dirLightRef, updateGround, updateSunPosition };
+    return { dirLightRef, updateGround, updateSunPosition, updateShadowFrustum };
 }

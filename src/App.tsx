@@ -333,7 +333,7 @@ function App() {
   } = useThreeScene(containerRef);
 
   // 3. Lights & Environment
-  const { dirLightRef, updateGround, updateSunPosition } = useLights(sceneRef, settings);
+  const { dirLightRef, updateGround, updateShadowFrustum } = useLights(sceneRef, settings);
 
   // 4. Measurements
   const {
@@ -407,7 +407,7 @@ function App() {
       settings.mergeGeometry,
       settings.loadMultiFile,
       displayMode,
-      updateSunPosition,
+      updateShadowFrustum,
       selectedObjectsRef
   );
 
