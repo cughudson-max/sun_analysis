@@ -14,7 +14,7 @@ export const createDistanceSprite = (text: string) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.Sprite(new THREE.SpriteMaterial());
 
-    const fontSize = 14;
+    const fontSize = 18;
     const font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.font = font;
     const metrics = ctx.measureText(text);

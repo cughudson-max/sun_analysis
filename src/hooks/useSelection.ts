@@ -20,6 +20,15 @@ export function useSelection(
     const selectedObjectsRef = useRef<Set<string>>(new Set());
     const lastMiddleClickTime = useRef<number>(0);
 
+    const isActuallyVisible = (obj: THREE.Object3D) => {
+        let cur: THREE.Object3D | null = obj;
+        while (cur) {
+            if (!cur.visible) return false;
+            cur = cur.parent;
+        }
+        return true;
+    };
+
     const zoomToSelection = () => {
       if (!sceneRef.current || !cameraRef.current || !controlsRef.current) return;
       
@@ -87,6 +96,7 @@ export function useSelection(
     const handleSelection = (objects: THREE.Object3D[], shiftKey: boolean) => {
         const validObjects = objects.filter(o => 
             o instanceof THREE.Mesh && 
+            isActuallyVisible(o) &&
             !isInMeasurements(o) && 
             o.name !== 'HighlightLine' && 
             o.name !== 'HighlightPoint' && 
@@ -211,7 +221,6 @@ export function useSelection(
             );
     
             const allSelected = selectionBoxRef.current.select();
-            console.log(`SelectionBox found ${allSelected.length} objects`);
             handleSelection(allSelected, event.shiftKey);
     
             isSelecting = false;
@@ -254,6 +263,7 @@ export function useSelection(
              }
 
              return hit.object instanceof THREE.Mesh &&
+                    isActuallyVisible(hit.object) &&
                     hit.object.userData?.isModelMesh === true &&
                     !isInMeasurements(hit.object) &&
                     hit.object.name !== 'HighlightLine' &&

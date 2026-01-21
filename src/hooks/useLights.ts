@@ -3,6 +3,115 @@ import * as THREE from 'three';
 import SunCalc from 'suncalc';
 import { ViewerSettings } from './useSettings';
 
+function getNowParts(timeZone?: string) {
+    const now = new Date();
+    if (!timeZone) {
+        return {
+            year: now.getFullYear(),
+            month: now.getMonth() + 1,
+            day: now.getDate(),
+            hour: now.getHours(),
+            minute: now.getMinutes(),
+            second: now.getSeconds()
+        };
+    }
+
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const parts = dtf.formatToParts(now);
+    const get = (type: string) => parts.find(p => p.type === type)?.value;
+    const year = Number(get('year'));
+    const month = Number(get('month'));
+    const day = Number(get('day'));
+    const hour = Number(get('hour'));
+    const minute = Number(get('minute'));
+    const second = Number(get('second'));
+    if ([year, month, day, hour, minute, second].some(n => Number.isNaN(n))) {
+        return {
+            year: now.getFullYear(),
+            month: now.getMonth() + 1,
+            day: now.getDate(),
+            hour: now.getHours(),
+            minute: now.getMinutes(),
+            second: now.getSeconds()
+        };
+    }
+    return { year, month, day, hour, minute, second };
+}
+
+function getTimeZoneOffsetMinutes(timeZone: string, date: Date) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const parts = dtf.formatToParts(date);
+    const get = (type: string) => parts.find(p => p.type === type)?.value;
+    const year = Number(get('year'));
+    const month = Number(get('month'));
+    const day = Number(get('day'));
+    const hour = Number(get('hour'));
+    const minute = Number(get('minute'));
+    const second = Number(get('second'));
+    const asUTC = Date.UTC(year, month - 1, day, hour, minute, second);
+    return (asUTC - date.getTime()) / 60000;
+}
+
+function zonedTimeToUtc(
+    {
+        year,
+        month,
+        day,
+        hour,
+        minute
+    }: { year: number; month: number; day: number; hour: number; minute: number },
+    timeZone: string
+) {
+    const guessUTC = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+    let offset = getTimeZoneOffsetMinutes(timeZone, guessUTC);
+    let adjusted = new Date(guessUTC.getTime() - offset * 60000);
+    const offset2 = getTimeZoneOffsetMinutes(timeZone, adjusted);
+    if (offset2 !== offset) {
+        adjusted = new Date(guessUTC.getTime() - offset2 * 60000);
+    }
+    return adjusted;
+}
+
+function buildSunDate(settings: ViewerSettings) {
+    const nowParts = getNowParts(settings.timeZone);
+    const year = nowParts.year;
+    const month = settings.month ?? nowParts.month;
+    const day = settings.day ?? nowParts.day;
+    const hourValue = settings.hour ?? (nowParts.hour + nowParts.minute / 60);
+
+    let h = Math.floor(hourValue);
+    let m = Math.round((hourValue - h) * 60);
+    if (m >= 60) {
+        m = 0;
+        h += 1;
+    }
+    h = Math.max(0, Math.min(23, h));
+
+    if (settings.timeZone) {
+        return zonedTimeToUtc({ year, month, day, hour: h, minute: m }, settings.timeZone);
+    }
+
+    return new Date(year, month - 1, day, h, m, 0, 0);
+}
+
 export function useLights(
     sceneRef: React.MutableRefObject<THREE.Scene | null>,
     settings: ViewerSettings
@@ -85,15 +194,8 @@ export function useLights(
     // Sun Position
     useEffect(() => {
         if (!dirLightRef.current) return;
-        
-        const now = new Date();
-        if (settings.month !== undefined) now.setMonth(settings.month - 1);
-        if (settings.day !== undefined) now.setDate(settings.day);
-        if (settings.hour !== undefined) {
-             now.setHours(Math.floor(settings.hour));
-             now.setMinutes((settings.hour % 1) * 60);
-        }
-        
+
+        const now = buildSunDate(settings);
         const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
         const phi = times.altitude;
         const theta = times.azimuth; 
@@ -115,19 +217,12 @@ export function useLights(
         }
         
         dirLightRef.current.updateMatrixWorld();
-    }, [settings.latitude, settings.longitude, settings.month, settings.day, settings.hour]);
+    }, [settings.latitude, settings.longitude, settings.timeZone, settings.month, settings.day, settings.hour]);
 
     const updateSunPosition = () => {
         if (!dirLightRef.current) return;
-        
-        const now = new Date();
-        if (settings.month !== undefined) now.setMonth(settings.month - 1);
-        if (settings.day !== undefined) now.setDate(settings.day);
-        if (settings.hour !== undefined) {
-             now.setHours(Math.floor(settings.hour));
-             now.setMinutes((settings.hour % 1) * 60);
-        }
-        
+
+        const now = buildSunDate(settings);
         const times = SunCalc.getPosition(now, settings.latitude, settings.longitude);
         const phi = times.altitude;
         const theta = times.azimuth; 

@@ -7,6 +7,9 @@ export interface ViewerSettings {
     bgBottom: string;
     latitude: number;
     longitude: number;
+    timeZone?: string;
+    mergeGeometry: boolean;
+    loadMultiFile: boolean;
     projection: 'perspective' | 'orthographic';
     displayMode: DisplayMode;
     shadows: boolean;
@@ -27,28 +30,28 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     bgBottom: '#ffffff',
     latitude: 39.9,
     longitude: 116.4,
+    mergeGeometry: false,
+    loadMultiFile: false,
     projection: 'perspective',
     displayMode: 'shadeWithEdge',
-    shadows: true,
+    shadows: false,
     shadowQuality: 4096,
     shadowBias: -0.0001,
     shadowRadius: 1,
     ambientIntensity: 1.0,
     ambientColor: '#ffffff',
     brightness: 5,
-    month: new Date().getMonth() + 1,
-    day: new Date().getDate(),
-    hour: new Date().getHours() + new Date().getMinutes() / 60,
     files3dm: []
 };
 
 export function useSettings() {
     const [settings, setSettings] = useState<ViewerSettings>(DEFAULT_SETTINGS);
+    const [configLoaded, setConfigLoaded] = useState(false);
 
     useEffect(() => {
         const loadConfig = async () => {
             try {
-                const response = await fetch('/config.json');
+                const response = await fetch(`${import.meta.env.BASE_URL}config.json`);
                 if (response.ok) {
                     const config = await response.json();
                     
@@ -61,12 +64,16 @@ export function useSettings() {
                             bgTop: config.topColor ?? prev.bgTop,
                             bgBottom: config.bottomColor ?? prev.bgBottom,
                             shadows: config.EnabledShadow ?? prev.shadows,
+                            mergeGeometry: config.MergeGeometry ?? prev.mergeGeometry,
+                            loadMultiFile: config.LoadMultiFile ?? prev.loadMultiFile,
                             files3dm: config['3dm'] ?? []
                         }));
                     }
                 }
             } catch (e) {
                 console.error('Failed to load config.json', e);
+            } finally {
+                setConfigLoaded(true);
             }
         };
 
@@ -80,5 +87,5 @@ export function useSettings() {
         });
     }, []);
 
-    return { settings, updateSettings };
+    return { settings, updateSettings, configLoaded };
 }

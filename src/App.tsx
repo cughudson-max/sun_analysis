@@ -3,6 +3,8 @@ import * as THREE from 'three';
 
 import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel, Combobox, Option, makeStyles, useId } from '@fluentui/react-components';
 
+import tzLookupRaw from 'tz-lookup/tz.js?raw';
+
 import layerIcon from './icon/layer.svg';
 import eyeIcon from './icon/eye.svg';
 import hideIcon from './icon/hide.svg';
@@ -50,6 +52,27 @@ const useStyles = makeStyles({
     overflowY: 'auto',
   },
 });
+
+type TzLookupFn = (lat: number, lng: number) => string;
+
+let cachedTzLookup: TzLookupFn | null = null;
+function getTzLookup(): TzLookupFn {
+  if (cachedTzLookup) return cachedTzLookup;
+  const fn = new Function(`${tzLookupRaw}; return tzlookup;`)() as unknown;
+  if (typeof fn !== 'function') {
+    throw new Error('tz-lookup init failed');
+  }
+  cachedTzLookup = fn as TzLookupFn;
+  return cachedTzLookup;
+}
+
+function safeLookupTimeZone(lat: number, lng: number): string | undefined {
+  try {
+    return getTzLookup()(lat, lng);
+  } catch {
+    return undefined;
+  }
+}
 
 function hexToHsv(hex: string): Hsv {
   let normalized = hex.trim();
@@ -232,11 +255,20 @@ function LayerTree({ layers, depth = 0, onToggleVisibility, onToggleLock }: any)
 
 function App() {
   const styles = useStyles();
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(true);
+  const settingsPanelWidth = 364;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 1. Settings
   const { settings, updateSettings, configLoaded } = useSettings();
   const displayMode = settings.displayMode || 'shadeWithEdge';
+
+  useEffect(() => {
+    const tz = safeLookupTimeZone(settings.latitude, settings.longitude);
+    if (!tz) return;
+    if (settings.timeZone === tz) return;
+    updateSettings({ timeZone: tz });
+  }, [settings.latitude, settings.longitude, settings.timeZone, updateSettings]);
 
   const [cities, setCities] = useState<City[]>([]);
   const [cityQuery, setCityQuery] = useState('');
@@ -257,7 +289,7 @@ function App() {
     let isMounted = true;
     const loadCities = async () => {
       try {
-        const res = await fetch('/city.json');
+        const res = await fetch(`${import.meta.env.BASE_URL}city.json`);
         if (!res.ok) return;
         const raw = (await res.json()) as unknown;
         if (!Array.isArray(raw)) return;
@@ -372,6 +404,8 @@ function App() {
       updateGround,
       updateHighlights,
       clearMeasurements,
+      settings.mergeGeometry,
+      settings.loadMultiFile,
       displayMode,
       updateSunPosition,
       selectedObjectsRef
@@ -507,6 +541,7 @@ function App() {
           type="file"
           id="file-input"
           accept=".3dm"
+          multiple={settings.loadMultiFile}
           style={{ display: 'none' }}
           onChange={handleFileChange}
         />
@@ -529,23 +564,52 @@ function App() {
       </div>
 
       <div
+        className="settings-panel-shell"
+        data-open={isSettingsPanelOpen ? 'true' : 'false'}
         style={{
-          width: 364,
-          minWidth: 364,
-          maxWidth: 364,
+          width: isSettingsPanelOpen ? settingsPanelWidth : 0,
+          minWidth: isSettingsPanelOpen ? settingsPanelWidth : 0,
+          maxWidth: isSettingsPanelOpen ? settingsPanelWidth : 0,
           flexShrink: 0,
           height: '100%',
-          boxSizing: 'border-box',
-          padding: 6,
-          backgroundColor: 'rgb(234, 236, 240)',
-          borderLeft: '1px solid #d1d1d1',
-          color: '#000000',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 4,
-          overflow: 'hidden'
+          position: 'relative',
+          overflow: 'visible',
+          transition: 'width 0.2s ease'
         }}
       >
+        <button
+          type="button"
+          className="settings-drawer-handle"
+          onClick={() => setIsSettingsPanelOpen(prev => !prev)}
+          aria-label={isSettingsPanelOpen ? '关闭设置面板' : '打开设置面板'}
+          title={isSettingsPanelOpen ? '关闭设置面板' : '打开设置面板'}
+        >
+          <span className="settings-drawer-icon">{isSettingsPanelOpen ? '›' : '‹'}</span>
+        </button>
+
+        <div
+          style={{
+            width: settingsPanelWidth,
+            minWidth: settingsPanelWidth,
+            maxWidth: settingsPanelWidth,
+            height: '100%',
+            boxSizing: 'border-box',
+            padding: 6,
+            backgroundColor: 'rgb(234, 236, 240)',
+            borderLeft: '1px solid #d1d1d1',
+            color: '#000000',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            overflow: 'hidden',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            transform: isSettingsPanelOpen ? 'translateX(0)' : 'translateX(100%)',
+            transition: 'transform 0.2s ease',
+            pointerEvents: isSettingsPanelOpen ? 'auto' : 'none'
+          }}
+        >
 
 
         <Accordion collapsible multiple defaultOpenItems={['display', 'shadows']}>
@@ -751,7 +815,8 @@ function App() {
                         setSelectedCityValue(optionValue);
                         setSelectedCityText(optionText ?? parts[0]);
                         setCityQuery('');
-                        updateSettings({ latitude: lat, longitude: lng });
+                        const tz = safeLookupTimeZone(lat, lng);
+                        updateSettings({ latitude: lat, longitude: lng, ...(tz ? { timeZone: tz } : {}) });
                       }}
                     >
                       {(cityQuery.trim() === '' ? cities : cities.filter(c => c.name.toLowerCase().includes(cityQuery.trim().toLowerCase())))
@@ -810,6 +875,7 @@ function App() {
             </Button>
             </div>
         )}
+        </div>
       </div>
     </div>
   );

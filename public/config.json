@@ -5,5 +5,7 @@
   "topColor": "#3CD0FC",
   "bottomColor": "#ffffff",
   "EnabledShadow": false,
+  "MergeGeometry": true,
+  "LoadMultiFile": true,
   "3dm": []
 }

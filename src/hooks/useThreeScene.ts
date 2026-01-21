@@ -113,10 +113,17 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
         };
 
         window.addEventListener('resize', handleResize);
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => {
+                handleResize();
+            })
+            : null;
+        resizeObserver?.observe(container);
 
         // Cleanup
         return () => {
             window.removeEventListener('resize', handleResize);
+            resizeObserver?.disconnect();
             renderer.dispose();
             if (containerRef.current && renderer.domElement) {
                 containerRef.current.removeChild(renderer.domElement);

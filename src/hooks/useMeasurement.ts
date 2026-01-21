@@ -34,11 +34,11 @@ export function useMeasurement(
         scene.add(measurementGroup);
         measurementGroupRef.current = measurementGroup;
         
-        measurePointGeometryRef.current = new THREE.SphereGeometry(0.02, 16, 16);
+        measurePointGeometryRef.current = new THREE.SphereGeometry(0.02, 8, 8);
         measureLineMaterialRef.current = new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
         measurePointMaterialRef.current = new THREE.MeshBasicMaterial({ color: 0x00ffff, depthTest: false, depthWrite: false });
 
-        const highlightGeo = new THREE.SphereGeometry(0.075, 16, 16);
+        const highlightGeo = new THREE.SphereGeometry(0.075, 8, 8);
         const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, depthTest: false, depthWrite: false, transparent: true, opacity: 0.8 });
         const highlightPoint = new THREE.Mesh(highlightGeo, highlightMat);
         highlightPoint.name = 'HighlightPoint';
@@ -216,6 +216,15 @@ export function useMeasurement(
         const renderer = rendererRef.current;
         if (!currentCamera || !scene || !renderer) return null;
 
+        const isActuallyVisible = (obj: THREE.Object3D) => {
+            let cur: THREE.Object3D | null = obj;
+            while (cur) {
+                if (!cur.visible) return false;
+                cur = cur.parent;
+            }
+            return true;
+        };
+
         const rect = renderer.domElement.getBoundingClientRect();
 
         mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -226,6 +235,7 @@ export function useMeasurement(
         const intersects = raycaster.intersectObjects(scene.children, true);
         const hit = intersects.find((h) => {
             if (!(h.object instanceof THREE.Mesh)) return false;
+            if (!isActuallyVisible(h.object)) return false;
             if (h.object.userData?.isModelMesh !== true) return false;
             if (h.object.name === 'Ground') return false;
             if (h.object.name === 'HighlightLine') return false;

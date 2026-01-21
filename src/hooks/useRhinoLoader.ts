@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { Rhino3dmLoader } from 'three/examples/jsm/loaders/3DMLoader.js';
 import { zoomToBox } from '../utils/camera-utils';
 import type { DisplayMode } from './useSettings';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const UNIT_NAMES: Record<number, string> = {
     0: 'None',
@@ -27,6 +27,8 @@ export function useRhinoLoader(
     updateGround: () => void,
     updateHighlights: () => void,
     clearMeasurements: () => void,
+    mergeGeometry: boolean,
+    loadMultiFile: boolean,
     displayMode: DisplayMode,
     updateSunPosition: () => void,
     selectedObjectsRef: React.MutableRefObject<Set<string>>
@@ -37,6 +39,17 @@ export function useRhinoLoader(
     const unitSetRef = useRef(false);
     const [layers, setLayers] = useState<{ index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[]>([]);
     const layerStateRef = useRef<Record<string, { isVisible: boolean; locked: boolean }>>({});
+    const rhinoLoaderCtorRef = useRef<any>(null);
+    const pendingLoadsRef = useRef(0);
+    const loadProgressRef = useRef<Map<number, number>>(new Map());
+    const loadIdRef = useRef(0);
+
+    const recomputeOverallProgress = () => {
+        const values = Array.from(loadProgressRef.current.values());
+        if (values.length === 0) return 0;
+        const sum = values.reduce((acc, v) => acc + v, 0);
+        return Math.round(sum / values.length);
+    };
 
     // Recursive helper to build tree
     const buildLayerTree = (layers: any[]) => {
@@ -150,25 +163,147 @@ export function useRhinoLoader(
         };
     }, []);
 
-    const load3dmFile = (url: string) => {
+    const getMaterialKey = (material: THREE.Material) => {
+        const mat: any = material as any;
+        const type = material.type;
+        const colorHex = mat?.color?.getHex ? mat.color.getHex() : undefined;
+        const opacity = typeof mat.opacity === 'number' ? mat.opacity : 1;
+        const transparent = !!mat.transparent;
+        const side = typeof mat.side === 'number' ? mat.side : THREE.FrontSide;
+        return `${type}|${colorHex ?? 'n'}|${opacity}|${transparent ? 1 : 0}|${side}`;
+    };
+
+    const getGeometryKey = (geometry: THREE.BufferGeometry) => {
+        const attrNames = Object.keys(geometry.attributes).sort().join(',');
+        const indexed = geometry.index ? 1 : 0;
+        return `${indexed}|${attrNames}`;
+    };
+
+    const ensureEdgeLine = (mesh: THREE.Mesh, isEdgeVisible: boolean) => {
+        const existing = mesh.children.find(c => c.name === 'SurfaceEdge');
+        if (existing) {
+            existing.visible = isEdgeVisible;
+            return;
+        }
+        const edges = new THREE.EdgesGeometry(mesh.geometry);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+        line.name = 'SurfaceEdge';
+        line.visible = isEdgeVisible;
+        mesh.add(line);
+    };
+
+    const mergeStaticMeshes = (root: THREE.Object3D, isEdgeVisible: boolean) => {
+        root.updateMatrixWorld(true);
+        const rootInverse = new THREE.Matrix4().copy(root.matrixWorld).invert();
+
+        const groups = new Map<string, { layerIndex: number; material: THREE.Material; geometries: THREE.BufferGeometry[]; meshes: THREE.Mesh[] }>();
+
+        root.traverse((child: THREE.Object3D) => {
+            if (!(child instanceof THREE.Mesh)) return;
+            if (!child.userData?.isModelMesh) return;
+            if (!child.geometry || !(child.geometry instanceof THREE.BufferGeometry)) return;
+            if (Array.isArray(child.material)) return;
+
+            const attrs = child.userData?.attributes;
+            const layerIndex = typeof attrs?.layerIndex === 'number' ? attrs.layerIndex : undefined;
+            if (layerIndex === undefined) return;
+
+            const geomKey = getGeometryKey(child.geometry);
+            const matKey = getMaterialKey(child.material as THREE.Material);
+            const key = `${layerIndex}|${matKey}|${geomKey}`;
+
+            const relative = new THREE.Matrix4().multiplyMatrices(rootInverse, child.matrixWorld);
+            let geom = child.geometry.clone();
+            if (geom.index) geom = geom.toNonIndexed();
+            geom.applyMatrix4(relative);
+            if (!geom.getAttribute('normal')) {
+                geom.computeVertexNormals();
+            }
+
+            const existing = groups.get(key);
+            if (existing) {
+                existing.geometries.push(geom);
+                existing.meshes.push(child);
+            } else {
+                groups.set(key, { layerIndex, material: child.material as THREE.Material, geometries: [geom], meshes: [child] });
+            }
+        });
+
+        const mergedMeshes: THREE.Mesh[] = [];
+        const toRemove = new Set<THREE.Mesh>();
+
+        for (const entry of groups.values()) {
+            if (entry.geometries.length < 2) continue;
+            const merged = mergeGeometries(entry.geometries, false);
+            if (!merged) continue;
+
+            merged.computeBoundingSphere();
+            merged.computeBoundingBox();
+
+            const material = entry.material.clone();
+            const mesh = new THREE.Mesh(merged, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData.isModelMesh = true;
+            mesh.userData.attributes = { ...(entry.meshes[0].userData?.attributes || {}), layerIndex: entry.layerIndex };
+            mesh.userData.isLocked = entry.meshes[0].userData?.isLocked ?? false;
+            mesh.visible = entry.meshes[0].visible;
+            ensureEdgeLine(mesh, isEdgeVisible);
+
+            mergedMeshes.push(mesh);
+            entry.meshes.forEach(m => toRemove.add(m));
+        }
+
+        if (mergedMeshes.length === 0) return;
+
+        root.add(...mergedMeshes);
+
+        toRemove.forEach(mesh => {
+            mesh.parent?.remove(mesh);
+            if (mesh.geometry) mesh.geometry.dispose();
+            const mat = mesh.material;
+            if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+            else if (mat) mat.dispose();
+            mesh.traverse(child => {
+                if (child instanceof THREE.LineSegments) {
+                    if (child.geometry) child.geometry.dispose();
+                    const m = child.material;
+                    if (Array.isArray(m)) m.forEach(mm => mm.dispose());
+                    else if (m) m.dispose();
+                }
+            });
+        });
+    };
+
+    const load3dmFile = async (url: string) => {
         const scene = sceneRef.current;
         if (!scene) return;
 
+        const loadId = ++loadIdRef.current;
+        pendingLoadsRef.current += 1;
+        loadProgressRef.current.set(loadId, 0);
         setIsLoading(true);
-        setLoadingProgress(0);
+        setLoadingProgress(recomputeOverallProgress());
 
-        const loader = new Rhino3dmLoader();
+        if (!rhinoLoaderCtorRef.current) {
+            const mod = await import('three/examples/jsm/loaders/3DMLoader.js');
+            rhinoLoaderCtorRef.current = mod.Rhino3dmLoader;
+        }
+        const loader = new rhinoLoaderCtorRef.current();
         //loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
 
-        loader.load(url, (object) => {
-            setIsLoading(false);
-            setLoadingProgress(100);
-
-            const logLayers = (rawLayers: any[]) => {
-                rawLayers.forEach((layer, i) => {
-                    console.log(`[3dm] Layer[${i}]`, layer);
-                });
-            };
+        loader.load(url, (object: THREE.Object3D) => {
+            loadProgressRef.current.set(loadId, 100);
+            pendingLoadsRef.current = Math.max(0, pendingLoadsRef.current - 1);
+            const overall = recomputeOverallProgress();
+            if (pendingLoadsRef.current === 0) {
+                loadProgressRef.current.clear();
+                setIsLoading(false);
+                setLoadingProgress(100);
+            } else {
+                setIsLoading(true);
+                setLoadingProgress(overall);
+            }
 
             if (!unitSetRef.current) {
                 // Try to get settings from userData (standard 3DMLoader) or doc (custom)
@@ -209,7 +344,7 @@ export function useRhinoLoader(
                 }
             }
             
-            object.traverse((child) => {
+            object.traverse((child: THREE.Object3D) => {
                 if (child instanceof THREE.Mesh) {
                    child.castShadow = true;
                    child.receiveShadow = true;
@@ -239,12 +374,6 @@ export function useRhinoLoader(
                            geom.userData.meshUuid = child.uuid;
                        }
                    }
-
-                   const edges = new THREE.EdgesGeometry(child.geometry);
-                   const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
-                   line.name = 'SurfaceEdge';
-                   line.visible = displayMode !== 'shade';
-                   child.add(line);
                    
                    if (!child.material) {
                      child.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -291,6 +420,17 @@ export function useRhinoLoader(
                    });
                 }
             });
+
+            const isEdgeVisible = displayMode !== 'shade';
+            if (mergeGeometry) {
+                mergeStaticMeshes(object, isEdgeVisible);
+            }
+
+            object.traverse((child: THREE.Object3D) => {
+                if (child instanceof THREE.Mesh && child.userData?.isModelMesh) {
+                    ensureEdgeLine(child, isEdgeVisible);
+                }
+            });
             
             sceneRef.current?.add(object);
             
@@ -301,13 +441,12 @@ export function useRhinoLoader(
 
             const builtinLayers = object.userData.layers;
             if (builtinLayers && Array.isArray(builtinLayers)) {
-                logLayers(builtinLayers);
                 // Clear existing state before building new one
                 layerStateRef.current = {};
                 const tree = buildLayerTree(builtinLayers);
                 setLayers(tree);
 
-                object.traverse(child => {
+                object.traverse((child: THREE.Object3D) => {
                     if (child.userData?.attributes?.layerIndex !== undefined) {
                         const layerIndex = child.userData.attributes.layerIndex;
                         const key = `layer_${layerIndex}`;
@@ -323,18 +462,13 @@ export function useRhinoLoader(
                 });
             } else {
                 const foundLayers = new Set<number>();
-                object.traverse(child => {
+                object.traverse((child: THREE.Object3D) => {
                     if (child.userData?.attributes?.layerIndex !== undefined) {
                         foundLayers.add(child.userData.attributes.layerIndex);
                     }
                 });
 
                 if (foundLayers.size > 0) {
-                    Array.from(foundLayers)
-                        .sort((a, b) => a - b)
-                        .forEach((index, i) => {
-                            console.log(`[3dm] Layer(inferred)[${i}]`, { index, id: `layer_id_${index}` });
-                        });
                     const nextState: Record<string, { isVisible: boolean; locked: boolean }> = {};
                     const nextLayers: { index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[] = [];
                     foundLayers.forEach(index => {
@@ -355,16 +489,6 @@ export function useRhinoLoader(
                 }
             }
 
-            let meshIndex = 0;
-            object.traverse(child => {
-                if (!(child instanceof THREE.Mesh)) return;
-                if (!child.userData?.isModelMesh) return;
-                console.log(
-                    `[3dm] MeshGeometry[${meshIndex++}] uuid=${child.uuid} name=${child.name} layerIndex=${child.userData?.attributes?.layerIndex}`,
-                    child.geometry
-                );
-            });
-
             if (dirLightRef.current?.castShadow) {
                 updateGround();
             }
@@ -374,26 +498,45 @@ export function useRhinoLoader(
                 zoomToBox(box, cameraRef.current, controlsRef.current, orthoFrustumHeightRef, dirLightRef.current || undefined, updateSunPosition);
             }
 
-        }, (xhr) => {
+        }, (xhr: ProgressEvent<EventTarget>) => {
             if (xhr.lengthComputable) {
                 const percentComplete = (xhr.loaded / xhr.total) * 100;
-                setLoadingProgress(Math.round(percentComplete));
+                loadProgressRef.current.set(loadId, percentComplete);
+                setIsLoading(true);
+                setLoadingProgress(recomputeOverallProgress());
             }
-        }, (error) => {
+        }, (error: unknown) => {
             console.error(error);
-            setIsLoading(false);
+            loadProgressRef.current.delete(loadId);
+            pendingLoadsRef.current = Math.max(0, pendingLoadsRef.current - 1);
+            const overall = recomputeOverallProgress();
+            if (pendingLoadsRef.current === 0) {
+                loadProgressRef.current.clear();
+                setIsLoading(false);
+                setLoadingProgress(0);
+            } else {
+                setIsLoading(true);
+                setLoadingProgress(overall);
+            }
         });
     };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        
-        clearMeasurements();
-        setModelUnit('');
-        unitSetRef.current = false;
-        
-        if (sceneRef.current) {
+        const fileList = event.target.files;
+        const files = fileList ? Array.from(fileList) : [];
+        if (files.length === 0) return;
+        event.target.value = '';
+
+        const willAppend = loadMultiFile;
+        const filesToLoad = willAppend ? files : files.slice(0, 1);
+
+        if (!willAppend) {
+            clearMeasurements();
+            setModelUnit('');
+            unitSetRef.current = false;
+        }
+
+        if (!willAppend && sceneRef.current) {
             const toRemove: THREE.Object3D[] = [];
             sceneRef.current.children.forEach(child => {
                 if (child instanceof THREE.Light) return;
@@ -404,17 +547,19 @@ export function useRhinoLoader(
                 if (child.name === 'Measurements') return;
                 if (child.name === 'HighlightPoint') return;
                 if (child.type === 'Camera') return;
-                
+
                 toRemove.push(child);
             });
-            
+
             toRemove.forEach(child => sceneRef.current?.remove(child));
             selectedObjectsRef.current.clear();
             updateHighlights();
         }
 
-        const url = URL.createObjectURL(file);
-        load3dmFile(url);
+        filesToLoad.forEach(file => {
+            const url = URL.createObjectURL(file);
+            void load3dmFile(url);
+        });
     };
 
 

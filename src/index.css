@@ -199,3 +199,33 @@ body.cursor-crosshair * {
 .shadows-settings .fui-Combobox input {
   padding-right: 4px;
 }
+
+.settings-drawer-handle {
+  position: absolute;
+  top: 50%;
+  left: -14px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 44px;
+  border: 1px solid #d1d1d1;
+  border-right: none;
+  background-color: rgb(234, 236, 240);
+  border-radius: 7px 0 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 2500;
+}
+
+.settings-drawer-handle:hover {
+  background-color: rgb(224, 226, 230);
+}
+
+.settings-drawer-icon {
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.65);
+  user-select: none;
+}

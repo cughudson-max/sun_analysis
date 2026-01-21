@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import type { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 
 export function useClipping(
     sceneRef: React.MutableRefObject<THREE.Scene | null>,
@@ -212,46 +212,43 @@ export function useClipping(
     }, [isClippingActive]);
 
     const toggleClipping = useCallback(() => {
-        if (isClippingActive) {
-            // Disable
-            setIsClippingActive(false);
-            
-            // Remove helpers
-            if (sceneRef.current && planeMeshRef.current) {
-                sceneRef.current.remove(planeMeshRef.current);
-                planeMeshRef.current = null;
-            }
-            if (sceneRef.current && transformControlsRef.current) {
-                transformControlsRef.current.detach();
-                sceneRef.current.remove(transformControlsRef.current);
-                transformControlsRef.current.dispose();
-                transformControlsRef.current = null;
-            }
-            if (sceneRef.current && arrowHelperRef.current) {
-                sceneRef.current.remove(arrowHelperRef.current);
-                arrowHelperRef.current = null;
-            }
+        void (async () => {
+            if (isClippingActive) {
+                setIsClippingActive(false);
+                
+                if (sceneRef.current && planeMeshRef.current) {
+                    sceneRef.current.remove(planeMeshRef.current);
+                    planeMeshRef.current = null;
+                }
+                if (sceneRef.current && transformControlsRef.current) {
+                    transformControlsRef.current.detach();
+                    sceneRef.current.remove(transformControlsRef.current);
+                    transformControlsRef.current.dispose();
+                    transformControlsRef.current = null;
+                }
+                if (sceneRef.current && arrowHelperRef.current) {
+                    sceneRef.current.remove(arrowHelperRef.current);
+                    arrowHelperRef.current = null;
+                }
 
-            // Clear planes from materials
-            if (sceneRef.current) {
-                sceneRef.current.traverse((child) => {
-                    if (child instanceof THREE.Mesh && child.userData.isModelMesh) {
-                        if (Array.isArray(child.material)) {
-                            child.material.forEach(m => m.clippingPlanes = []);
-                        } else {
-                            child.material.clippingPlanes = [];
+                if (sceneRef.current) {
+                    sceneRef.current.traverse((child) => {
+                        if (child instanceof THREE.Mesh && child.userData.isModelMesh) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(m => m.clippingPlanes = []);
+                            } else {
+                                child.material.clippingPlanes = [];
+                            }
                         }
-                    }
-                });
+                    });
+                }
+                return;
             }
 
-        } else {
-            // Enable
             setIsClippingActive(true);
 
             if (!sceneRef.current || !rendererRef.current || !cameraRef.current) return;
 
-            // 1. Create Plane Mesh (Visual)
             const geometry = new THREE.PlaneGeometry(10, 10);
             const material = new THREE.MeshBasicMaterial({ 
                 color: 0xffff00, 
@@ -269,18 +266,14 @@ export function useClipping(
                 mesh.position.set(0, 0, 0);
             }
             
-            // Default plane is (0,1,0), so normal is Y+.
-            // PlaneGeometry is in XY plane (normal Z+). 
-            // To make mesh normal Y+, rotate -90 deg around X.
             mesh.rotation.set(-Math.PI / 2, 0, 0);
 
             sceneRef.current.add(mesh);
             planeMeshRef.current = mesh;
 
-            // Add Cap Mesh for Stencil Fill
             const capGeometry = new THREE.PlaneGeometry(1000, 1000);
             const capMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
+                color: 0x333333,
                 stencilWrite: true,
                 stencilFunc: THREE.NotEqualStencilFunc,
                 stencilRef: 0,
@@ -288,30 +281,27 @@ export function useClipping(
                 side: THREE.DoubleSide
             });
             const capMesh = new THREE.Mesh(capGeometry, capMaterial);
-            capMesh.renderOrder = 1; // Draw after stencil masks
+            capMesh.renderOrder = 1;
             capMesh.name = "ClippingCapMesh";
             mesh.add(capMesh);
 
-            // 2. Add Frame Helper for the plane
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffff00 }));
             mesh.add(line);
 
-            // 3. Add Arrow Helper for normal
             const arrowDir = new THREE.Vector3(0, 0, 1);
             const arrowOrigin = new THREE.Vector3(0, 0, 0);
             const arrowLen = 5;
             const arrowColor = 0xffff00;
             const arrowHelper = new THREE.ArrowHelper(arrowDir, arrowOrigin, arrowLen, arrowColor);
-            mesh.add(arrowHelper); // Attached to mesh, so it rotates with it
+            mesh.add(arrowHelper);
 
-            // 4. Setup TransformControls
-            const control = new TransformControls(cameraRef.current, rendererRef.current.domElement);
+            const mod = await import('three/examples/jsm/controls/TransformControls.js');
+            const control = new mod.TransformControls(cameraRef.current, rendererRef.current.domElement);
             control.attach(mesh);
             sceneRef.current.add(control);
             transformControlsRef.current = control;
 
-            // 5. Setup Events
             control.addEventListener('dragging-changed', (event) => {
                 if (controlsRef.current) {
                     controlsRef.current.enabled = !event.value;
@@ -322,9 +312,8 @@ export function useClipping(
                 updatePlaneFromMesh();
             });
 
-            // Initial sync
             updatePlaneFromMesh();
-        }
+        })();
     }, [isClippingActive, updatePlaneFromMesh, sceneRef, cameraRef, rendererRef, controlsRef]);
 
     const flipClipping = useCallback(() => {

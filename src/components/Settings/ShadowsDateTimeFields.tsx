@@ -3,6 +3,46 @@ import { DatePicker } from '@fluentui/react-datepicker-compat';
 import { TimePicker } from '@fluentui/react-timepicker-compat';
 import type { ViewerSettings } from '../../hooks/useSettings';
 
+function getNowParts(timeZone?: string) {
+  const now = new Date();
+  if (!timeZone) {
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate(),
+      hour: now.getHours(),
+      minute: now.getMinutes()
+    };
+  }
+
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  const parts = dtf.formatToParts(now);
+  const get = (type: string) => parts.find(p => p.type === type)?.value;
+  const year = Number(get('year'));
+  const month = Number(get('month'));
+  const day = Number(get('day'));
+  const hour = Number(get('hour'));
+  const minute = Number(get('minute'));
+  if ([year, month, day, hour, minute].some(n => Number.isNaN(n))) {
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate(),
+      hour: now.getHours(),
+      minute: now.getMinutes()
+    };
+  }
+  return { year, month, day, hour, minute };
+}
+
 export default function ShadowsDateTimeFields({
   settings,
   updateSettings
@@ -10,6 +50,8 @@ export default function ShadowsDateTimeFields({
   settings: ViewerSettings;
   updateSettings: (newSettings: Partial<ViewerSettings>) => void;
 }) {
+  const nowParts = getNowParts(settings.timeZone);
+  const currentHour = nowParts.hour + nowParts.minute / 60;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
@@ -22,9 +64,9 @@ export default function ShadowsDateTimeFields({
             disabled={!settings.shadows}
             value={
               new Date(
-                new Date().getFullYear(),
-                (settings.month ?? new Date().getMonth() + 1) - 1,
-                settings.day ?? new Date().getDate()
+                nowParts.year,
+                (settings.month ?? nowParts.month) - 1,
+                settings.day ?? nowParts.day
               )
             }
             formatDate={(date) => (date ? date.toLocaleDateString('zh-CN') : '')}
@@ -51,7 +93,6 @@ export default function ShadowsDateTimeFields({
             placeholder="选择时间"
             value={(() => {
               const base = new Date();
-              const currentHour = base.getHours() + base.getMinutes() / 60;
               const hourValue = settings.hour ?? currentHour;
               const h = Math.floor(hourValue);
               const m = Math.round((hourValue - h) * 60);
@@ -63,7 +104,6 @@ export default function ShadowsDateTimeFields({
             })()}
             selectedTime={(() => {
               const base = new Date();
-              const currentHour = base.getHours() + base.getMinutes() / 60;
               const hourValue = settings.hour ?? currentHour;
               const h = Math.floor(hourValue);
               const m = Math.round((hourValue - h) * 60);
