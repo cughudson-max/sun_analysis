@@ -511,8 +511,12 @@ function App() {
 
       clearSunAnalysis(true);
 
-      const gridSegments = 50;
-      const groundGeometry = new THREE.PlaneGeometry(groundW, groundH, gridSegments, gridSegments);
+      const groundMaxDim = Math.max(groundW, groundH);
+      const targetCellSize = groundMaxDim / 50;
+      const segmentsX = Math.max(1, Math.round(groundW / targetCellSize));
+      const segmentsY = Math.max(1, Math.round(groundH / targetCellSize));
+      
+      const groundGeometry = new THREE.PlaneGeometry(groundW, groundH, segmentsX, segmentsY);
       const vertexCount = groundGeometry.attributes.position.count;
       const sunScore = new Float32Array(vertexCount);
       groundGeometry.setAttribute('sunScore', new THREE.BufferAttribute(sunScore, 1));
@@ -534,7 +538,7 @@ function App() {
           uGradientMap: { value: generateGradientTexture(selectedGradient) },
           uAccumMap: { value: null },
           uTotalSamples: { value: 1.0 },
-          uGridSegments: { value: gridSegments }
+          uGridSegments: { value: new THREE.Vector2(segmentsX, segmentsY) }
         },
         vertexShader: `
           attribute float sunScore;
@@ -555,7 +559,7 @@ function App() {
           uniform sampler2D uGradientMap;
           uniform sampler2D uAccumMap;
           uniform float uTotalSamples;
-          uniform float uGridSegments;
+          uniform vec2 uGridSegments;
           
           void main() {
             float score = 0.0;
@@ -920,12 +924,12 @@ function App() {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
-            const cellW = canvas.width / gridSegments;
-            const cellH = canvas.height / gridSegments;
-            const rowVertices = gridSegments + 1;
+            const cellW = canvas.width / segmentsX;
+            const cellH = canvas.height / segmentsY;
+            const rowVertices = segmentsX + 1;
 
-            for (let iy = 0; iy < gridSegments; iy++) {
-                for (let ix = 0; ix < gridSegments; ix++) {
+            for (let iy = 0; iy < segmentsY; iy++) {
+                for (let ix = 0; ix < segmentsX; ix++) {
                     const i1 = iy * rowVertices + ix;
                     const i2 = iy * rowVertices + (ix + 1);
                     const i3 = (iy + 1) * rowVertices + ix;
@@ -1005,9 +1009,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!settings.shadows && isSunAnalysisRunning) {
-      stopSignalRef.current = true;
+    if (!settings.shadows) {
+      if (isSunAnalysisRunning) {
+        stopSignalRef.current = true;
+      }
       setIsSunAnalysisEnabled(false);
+      clearSunAnalysis(true);
     }
   }, [settings.shadows, isSunAnalysisRunning]);
 

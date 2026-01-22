@@ -6,6 +6,6 @@
   "bottomColor": "#ffffff",
   "EnabledShadow": false,
   "MergeGeometry": false,
-  "LoadMultiFile": true,
+  "LoadMultiFile": false,
   "3dm": []
 }

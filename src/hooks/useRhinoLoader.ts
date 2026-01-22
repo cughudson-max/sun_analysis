@@ -200,6 +200,19 @@ export function useRhinoLoader(
 
         root.traverse((child: THREE.Object3D) => {
             if (!(child instanceof THREE.Mesh)) return;
+            
+            // Skip meshes inside instances to preserve hierarchy/visibility
+            let p = child.parent;
+            let insideInstance = false;
+            while (p && p !== root) {
+                if (p.userData?.isInstance) {
+                    insideInstance = true;
+                    break;
+                }
+                p = p.parent;
+            }
+            if (insideInstance) return;
+
             if (!child.userData?.isModelMesh) return;
             if (!child.geometry || !(child.geometry instanceof THREE.BufferGeometry)) return;
             if (Array.isArray(child.material)) return;
@@ -293,6 +306,76 @@ export function useRhinoLoader(
         //loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
 
         loader.load(url, (object: THREE.Object3D) => {
+            // Fix: Recursive Instance Resolution
+            const { instanceDefinitions, instanceDefinitionObjects, instanceReferences } = object.userData;
+            if (instanceDefinitions?.length > 0 && instanceReferences?.length > 0 && instanceDefinitionObjects?.length > 0) {
+                const defMap = new Map<string, any>();
+                instanceDefinitions.forEach((d: any) => defMap.set(d.attributes.id, d));
+
+                const refMap = new Map<string, any>();
+                instanceReferences.forEach((r: any) => refMap.set(r.attributes.id, r));
+                
+                const geomMap = new Map<string, THREE.Object3D>();
+                instanceDefinitionObjects.forEach((o: THREE.Object3D) => {
+                    if (o.userData?.attributes?.id) geomMap.set(o.userData.attributes.id, o);
+                });
+
+                const containedIds = new Set<string>();
+                instanceDefinitions.forEach((def: any) => {
+                    if (def.attributes?.objectIds) {
+                        def.attributes.objectIds.forEach((id: string) => containedIds.add(id));
+                    }
+                });
+
+                // Remove flattened instances added by Rhino3dmLoader
+                const toRemove: THREE.Object3D[] = [];
+                object.children.forEach(child => {
+                     if (child.type === 'Object3D' && child.children.length > 0) {
+                         toRemove.push(child);
+                     }
+                });
+                toRemove.forEach(c => object.remove(c));
+
+                const createInstance = (ref: any, parentLayerIndex: number): THREE.Object3D | null => {
+                    const def = defMap.get(ref.geometry.parentIdefId);
+                    if (!def) return null;
+
+                    const wrapper = new THREE.Object3D();
+                    const xform = new THREE.Matrix4().fromArray(ref.geometry.xform.array);
+                    wrapper.applyMatrix4(xform);
+                    wrapper.name = ref.attributes.name || 'Instance';
+                    
+                    const layerIndex = ref.attributes.layerIndex;
+                    wrapper.userData.attributes = { ...ref.attributes, layerIndex };
+                    wrapper.userData.isInstance = true;
+
+                    if (def.attributes.objectIds) {
+                        def.attributes.objectIds.forEach((id: string) => {
+                             const geom = geomMap.get(id);
+                             if (geom) {
+                                 const clone = geom.clone();
+                                 // Preserve original layer index for geometry
+                                 wrapper.add(clone);
+                             }
+
+                             const childRef = refMap.get(id);
+                             if (childRef) {
+                                 const child = createInstance(childRef, layerIndex);
+                                 if (child) wrapper.add(child);
+                             }
+                        });
+                    }
+                    return wrapper;
+                };
+
+                instanceReferences.forEach((ref: any) => {
+                    if (!containedIds.has(ref.attributes.id)) {
+                        const instance = createInstance(ref, ref.attributes.layerIndex);
+                        if (instance) object.add(instance);
+                    }
+                });
+            }
+
             loadProgressRef.current.set(loadId, 100);
             pendingLoadsRef.current = Math.max(0, pendingLoadsRef.current - 1);
             const overall = recomputeOverallProgress();
