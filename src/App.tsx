@@ -1344,7 +1344,7 @@ function App() {
         <SunAnalysisLegend 
             maxHours={maxSunHours} 
             gradientName={selectedGradient} 
-            visible={isSunAnalysisEnabled} 
+            visible={settings.shadows} 
         />
       </div>
 
