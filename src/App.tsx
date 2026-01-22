@@ -336,6 +336,35 @@ function LayerTree({ layers, depth = 0, onToggleVisibility, onToggleLock }: any)
   );
 }
 
+function SunAnalysisLegend({ maxHours, gradientName, visible }: { maxHours: number; gradientName: string; visible: boolean }) {
+  if (!visible) return null;
+  const stops = gradients[gradientName] || gradients['turbo'];
+  const gradientCss = `linear-gradient(to top, ${stops.map((s: any) => `${s.color} ${s.offset * 100}%`).join(', ')})`;
+  
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      display: 'flex',
+      flexDirection: 'row',
+      gap: 4,
+      pointerEvents: 'none',
+      userSelect: 'none',
+      zIndex: 1000
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 150, textAlign: 'right', color: '#000', fontSize: '12px', lineHeight: 1 }}>
+        <span>{maxHours.toFixed(1)} h</span>
+        <span>{(maxHours * 0.75).toFixed(1)} h</span>
+        <span>{(maxHours * 0.5).toFixed(1)} h</span>
+        <span>{(maxHours * 0.25).toFixed(1)} h</span>
+        <span>0.0 h</span>
+      </div>
+      <div style={{ width: 24, height: 150, background: gradientCss }} />
+    </div>
+  );
+}
+
 function App() {
   const styles = useStyles();
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(true);
@@ -347,6 +376,7 @@ function App() {
   const sunAnalysisGroupRef = useRef<THREE.Group | null>(null);
   const sunAnalysisTextureRef = useRef<THREE.Texture | null>(null);
   const sunAnalysisRunIdRef = useRef(0);
+  const stopSignalRef = useRef(false);
   const [selectedGradient, setSelectedGradient] = useState('turbo');
 
   const generateGradientTexture = (name: string) => {
@@ -438,6 +468,7 @@ function App() {
     let depthMaterial: THREE.MeshDepthMaterial | null = null;
     let accumTarget: THREE.WebGLRenderTarget | null = null;
     let analysisMaterial: THREE.ShaderMaterial | null = null;
+    let canceled = false;
     try {
       const scene = sceneRef.current;
       const renderer = rendererRef.current;
@@ -709,7 +740,6 @@ function App() {
       const day = settings.day ?? nowDay;
 
       let totalSamples = 0;
-      let canceled = false;
       const hideNames = new Set([
         'Ground',
         'GroupAcceptShadow',
@@ -741,7 +771,12 @@ function App() {
       // Dummy camera for full-screen pass
       const dummyCam = new THREE.Camera();
 
+      // Reset stop signal
+      stopSignalRef.current = false;
+
       for (let h = 0; h < 24; h += 0.5) {
+        if (stopSignalRef.current) break;
+
         if (sunAnalysisRunIdRef.current !== runId) {
           canceled = true;
           break;
@@ -949,6 +984,7 @@ function App() {
       }
       if (sunAnalysisRunIdRef.current === runId) {
         setIsSunAnalysisRunning(false);
+        setIsSunAnalysisEnabled(false);
       }
     }
   };
@@ -956,6 +992,7 @@ function App() {
   useEffect(() => {
     if (isSunAnalysisEnabled && !isSunAnalysisRunning) {
       sunAnalysisRunIdRef.current += 1;
+      stopSignalRef.current = false;
       void runSunAnalysis();
     }
   }, [
@@ -966,6 +1003,13 @@ function App() {
     settings.timeZone,
     isSunAnalysisEnabled
   ]);
+
+  useEffect(() => {
+    if (!settings.shadows && isSunAnalysisRunning) {
+      stopSignalRef.current = true;
+      setIsSunAnalysisEnabled(false);
+    }
+  }, [settings.shadows, isSunAnalysisRunning]);
 
   useEffect(() => {
     if (sunAnalysisGroupRef.current) {
@@ -983,11 +1027,8 @@ function App() {
   }, [selectedGradient]);
 
   useEffect(() => {
-    if (!settings.shadows && isSunAnalysisEnabled) {
-      setIsSunAnalysisEnabled(false);
-      sunAnalysisRunIdRef.current += 1;
-      if (isSunAnalysisRunning) clearSunAnalysis(false);
-      else clearSunAnalysis(true);
+    if (!settings.shadows && isSunAnalysisEnabled && isSunAnalysisRunning) {
+      stopSignalRef.current = true;
     }
   }, [settings.shadows, isSunAnalysisEnabled, isSunAnalysisRunning]);
 
@@ -1300,50 +1341,12 @@ function App() {
                 模型单位:{modelUnit}
             </div>
         )}
+        <SunAnalysisLegend 
+            maxHours={maxSunHours} 
+            gradientName={selectedGradient} 
+            visible={isSunAnalysisEnabled} 
+        />
       </div>
-
-      {/* Sun Analysis Legend */}
-      {isSunAnalysisEnabled && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 60,
-            right: isSettingsPanelOpen ? settingsPanelWidth + 20 : 20,
-            background: 'rgba(255, 255, 255, 0.9)',
-            padding: '12px 8px',
-            borderRadius: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            pointerEvents: 'none',
-            zIndex: 1000,
-            transition: 'right 0.2s ease',
-            border: '1px solid #ccc',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            fontSize: '12px',
-            color: '#333'
-          }}
-        >
-           <Text weight="semibold" style={{ alignSelf: 'center', marginBottom: 4 }}>日照时长 (h)</Text>
-           <div style={{ display: 'flex', height: 160, alignItems: 'stretch', gap: 8 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', padding: '2px 0' }}>
-                 <span style={{ lineHeight: 1 }}>{maxSunHours.toFixed(1)}</span>
-                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.75).toFixed(1)}</span>
-                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.5).toFixed(1)}</span>
-                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.25).toFixed(1)}</span>
-                 <span style={{ lineHeight: 1 }}>0.0</span>
-              </div>
-              <div 
-                 style={{ 
-                    width: 24, 
-                    background: getGradientCss(gradients[selectedGradient] || gradients['turbo'], '0deg'),
-                    border: '1px solid #999',
-                    borderRadius: 2
-                 }} 
-              />
-           </div>
-        </div>
-      )}
 
       <div
         className="settings-panel-shell"
@@ -1658,15 +1661,17 @@ function App() {
                     <Button
                       appearance={isSunAnalysisEnabled ? "primary" : "secondary"}
                       size="small"
-                      disabled={!settings.shadows || (isSunAnalysisRunning && !isSunAnalysisEnabled)}
+                      disabled={!settings.shadows || isSunAnalysisRunning}
                       onClick={() => {
                         const next = !isSunAnalysisEnabled;
                         setIsSunAnalysisEnabled(next);
                         if (next) {
                           sunAnalysisRunIdRef.current += 1;
+                          stopSignalRef.current = false;
                           void runSunAnalysis();
                         } else {
                           sunAnalysisRunIdRef.current += 1;
+                          setIsSunAnalysisRunning(false);
                           if (isSunAnalysisRunning) clearSunAnalysis(false);
                           else clearSunAnalysis(true);
                         }
