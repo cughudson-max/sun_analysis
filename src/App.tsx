@@ -53,6 +53,12 @@ const useStyles = makeStyles({
     maxHeight: '240px',
     overflowY: 'auto',
   },
+  gradientDropdown: {
+    backgroundSize: 'calc(100% - 28px) 100%',
+    '& > :first-child': {
+      padding: '0 4px',
+    },
+  },
 });
 
 type TzLookupFn = (lat: number, lng: number) => string;
@@ -1618,6 +1624,7 @@ function App() {
                   </Text>
                   <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
                     <Dropdown
+                      className={styles.gradientDropdown}
                       disabled={!settings.shadows}
                       selectedOptions={[selectedGradient]}
                       onOptionSelect={(_, data) => {
@@ -1630,7 +1637,6 @@ function App() {
                         minHeight: 28,
                         backgroundImage: getGradientCss(gradients[selectedGradient] || gradients['turbo']),
                         backgroundRepeat: 'no-repeat',
-                        backgroundSize: 'calc(100% - 32px) 100%',
                         backgroundPosition: 'left center',
                         color: 'transparent',
                         filter: !settings.shadows ? 'grayscale(1)' : 'none'
