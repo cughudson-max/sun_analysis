@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import SunCalc from 'suncalc';
 
 import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel, Combobox, Option, makeStyles, useId } from '@fluentui/react-components';
 
@@ -72,6 +73,81 @@ function safeLookupTimeZone(lat: number, lng: number): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function getNowParts(timeZone?: string) {
+  const now = new Date();
+  if (!timeZone) {
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate()
+    };
+  }
+
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour12: false
+  });
+  const parts = dtf.formatToParts(now);
+  const get = (type: string) => parts.find(p => p.type === type)?.value;
+  const year = Number(get('year'));
+  const month = Number(get('month'));
+  const day = Number(get('day'));
+  if ([year, month, day].some(n => Number.isNaN(n))) {
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate()
+    };
+  }
+  return { year, month, day };
+}
+
+function getTimeZoneOffsetMinutes(timeZone: string, date: Date) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const parts = dtf.formatToParts(date);
+  const get = (type: string) => parts.find(p => p.type === type)?.value;
+  const year = Number(get('year'));
+  const month = Number(get('month'));
+  const day = Number(get('day'));
+  const hour = Number(get('hour'));
+  const minute = Number(get('minute'));
+  const second = Number(get('second'));
+  const asUTC = Date.UTC(year, month - 1, day, hour, minute, second);
+  return (asUTC - date.getTime()) / 60000;
+}
+
+function zonedTimeToUtc(
+  {
+    year,
+    month,
+    day,
+    hour,
+    minute
+  }: { year: number; month: number; day: number; hour: number; minute: number },
+  timeZone: string
+) {
+  const guessUTC = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  let offset = getTimeZoneOffsetMinutes(timeZone, guessUTC);
+  let adjusted = new Date(guessUTC.getTime() - offset * 60000);
+  const offset2 = getTimeZoneOffsetMinutes(timeZone, adjusted);
+  if (offset2 !== offset) {
+    adjusted = new Date(guessUTC.getTime() - offset2 * 60000);
+  }
+  return adjusted;
 }
 
 function hexToHsv(hex: string): Hsv {
@@ -258,6 +334,11 @@ function App() {
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(true);
   const settingsPanelWidth = 364;
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isSunAnalysisRunning, setIsSunAnalysisRunning] = useState(false);
+  const [isSunAnalysisEnabled, setIsSunAnalysisEnabled] = useState(false);
+  const sunAnalysisGroupRef = useRef<THREE.Group | null>(null);
+  const sunAnalysisTextureRef = useRef<THREE.Texture | null>(null);
+  const sunAnalysisRunIdRef = useRef(0);
 
   // 1. Settings
   const { settings, updateSettings, configLoaded } = useSettings();
@@ -284,6 +365,344 @@ function App() {
     if (Number.isNaN(lat) || Number.isNaN(lng)) return undefined;
     return `经度:${lng}，纬度：${lat}`;
   })();
+
+  const clearSunAnalysis = (dispose = true) => {
+    const scene = sceneRef.current;
+    if (scene && sunAnalysisGroupRef.current) {
+      scene.remove(sunAnalysisGroupRef.current);
+    }
+    if (dispose && sunAnalysisGroupRef.current) {
+      sunAnalysisGroupRef.current.traverse(obj => {
+        const anyObj: any = obj as any;
+        if (anyObj.material) {
+          const mat = anyObj.material;
+          if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+          else mat.dispose?.();
+        }
+        if (anyObj.geometry) {
+          anyObj.geometry.dispose?.();
+        }
+      });
+    }
+    if (dispose && sunAnalysisTextureRef.current) {
+      sunAnalysisTextureRef.current.dispose();
+      sunAnalysisTextureRef.current = null;
+    }
+    sunAnalysisGroupRef.current = null;
+  };
+
+  const runSunAnalysis = async () => {
+    if (!sceneRef.current) return;
+    if (!rendererRef.current) return;
+    if (isSunAnalysisRunning) return;
+    const runId = (sunAnalysisRunIdRef.current += 1);
+    setIsSunAnalysisRunning(true);
+    let createdGroup: THREE.Group | null = null;
+    let depthTarget: THREE.WebGLRenderTarget | null = null;
+    let depthMaterial: THREE.MeshDepthMaterial | null = null;
+    try {
+      const scene = sceneRef.current;
+      const renderer = rendererRef.current;
+
+      const box = new THREE.Box3();
+      let hasObjects = false;
+      const isActuallyVisible = (obj: THREE.Object3D) => {
+        let cur: THREE.Object3D | null = obj;
+        while (cur) {
+          if (!cur.visible) return false;
+          cur = cur.parent;
+        }
+        return true;
+      };
+      scene.traverse(child => {
+        if (!(child instanceof THREE.Mesh)) return;
+        if (!isActuallyVisible(child)) return;
+        if (child.name === 'Ground') return;
+        if (child.name === 'selection-box') return;
+        if (child.name === 'HighlightLine') return;
+        if (child.name === 'HighlightPoint') return;
+        if (child instanceof THREE.GridHelper) return;
+        if (child instanceof THREE.AxesHelper) return;
+        box.expandByObject(child);
+        hasObjects = true;
+      });
+      if (!hasObjects) {
+        box.min.set(-1000, -1000, 0);
+        box.max.set(1000, 1000, 0);
+      }
+
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const baseZ = box.min.z;
+      const groundW = Math.max(size.x, 1) * 5;
+      const groundH = Math.max(size.y, 1) * 5;
+
+      clearSunAnalysis(true);
+
+      const gridSegments = 199;
+      const groundGeometry = new THREE.PlaneGeometry(groundW, groundH, gridSegments, gridSegments);
+      const vertexCount = groundGeometry.attributes.position.count;
+      const sunScore = new Float32Array(vertexCount);
+      groundGeometry.setAttribute('sunScore', new THREE.BufferAttribute(sunScore, 1));
+
+      const sunMaterial = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        uniforms: {
+          uOpacity: { value: 0.78 }
+        },
+        vertexShader: `
+          attribute float sunScore;
+          varying float vScore;
+          void main() {
+            vScore = sunScore;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying float vScore;
+          uniform float uOpacity;
+          vec3 ramp(float t) {
+            t = clamp(t, 0.0, 1.0);
+            vec3 c1 = vec3(0.10, 0.25, 0.85);
+            vec3 c2 = vec3(0.10, 0.75, 0.55);
+            vec3 c3 = vec3(0.98, 0.86, 0.25);
+            vec3 c4 = vec3(0.85, 0.15, 0.10);
+            if (t < 0.33) return mix(c1, c2, t / 0.33);
+            if (t < 0.66) return mix(c2, c3, (t - 0.33) / 0.33);
+            return mix(c3, c4, (t - 0.66) / 0.34);
+          }
+          void main() {
+            vec3 color = ramp(vScore);
+            gl_FragColor = vec4(color, uOpacity);
+          }
+        `
+      });
+
+      const groundMesh = new THREE.Mesh(groundGeometry, sunMaterial);
+      groundMesh.name = 'GroundAcceptShadow';
+      groundMesh.position.set(center.x, center.y, baseZ);
+      groundMesh.receiveShadow = true;
+      const groundPos = groundMesh.position;
+
+      const group = new THREE.Group();
+      group.name = 'GroupAcceptShadow';
+      group.add(groundMesh);
+      scene.add(group);
+      createdGroup = group;
+      sunAnalysisGroupRef.current = group;
+
+      const rtSize = 512;
+      depthTarget = new THREE.WebGLRenderTarget(rtSize, rtSize, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        depthBuffer: true,
+        stencilBuffer: false
+      });
+      depthTarget.texture.generateMipmaps = false;
+
+      depthMaterial = new THREE.MeshDepthMaterial({
+        depthPacking: THREE.RGBADepthPacking
+      });
+      depthMaterial.blending = THREE.NoBlending;
+      depthMaterial.side = THREE.DoubleSide;
+
+      const pixels = new Uint8Array(rtSize * rtSize * 4);
+      const temp = new THREE.Vector3();
+      const corners: THREE.Vector3[] = [
+        new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+      ];
+
+      const sunCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
+      const upZ = new THREE.Vector3(0, 0, 1);
+      const upY = new THREE.Vector3(0, 1, 0);
+      const maxDim = Math.max(size.x, size.y, size.z, 1);
+      const distance = Math.max(1000, maxDim * 3);
+      const margin = Math.max(10, maxDim * 0.2);
+
+      const unpackDepth = (r: number, g: number, b: number, a: number) => {
+        const rf = r / 255;
+        const gf = g / 255;
+        const bf = b / 255;
+        const af = a / 255;
+        return rf / (256 * 256 * 256) + gf / (256 * 256) + bf / 256 + af;
+      };
+
+      const { year: nowYear, month: nowMonth, day: nowDay } = getNowParts(settings.timeZone);
+      const year = nowYear;
+      const month = settings.month ?? nowMonth;
+      const day = settings.day ?? nowDay;
+
+      const posArr = groundGeometry.attributes.position.array as Float32Array;
+      let totalSamples = 0;
+      let canceled = false;
+      const hideNames = new Set([
+        'Ground',
+        'GroupAcceptShadow',
+        'GroundAcceptShadow',
+        'selection-box',
+        'HighlightLine',
+        'HighlightPoint',
+        'Measurements',
+        'MeasurementGroup',
+        'MeasurementPoint',
+        'MeasurementLine',
+        'MeasurementTempLine',
+        'MeasurementTemp',
+        'ClippingPlaneHelper',
+        'ClippingCapMesh'
+      ]);
+      const depthIgnore: THREE.Object3D[] = [];
+      scene.traverse(obj => {
+        if (hideNames.has(obj.name)) depthIgnore.push(obj);
+      });
+      const prevIgnoreVisibility = new Array<boolean>(depthIgnore.length);
+
+      for (let h = 0; h < 24; h += 0.5) {
+        if (sunAnalysisRunIdRef.current !== runId) {
+          canceled = true;
+          break;
+        }
+
+        const hour = Math.floor(h);
+        const minute = Math.round((h - hour) * 60);
+        const date = settings.timeZone
+          ? zonedTimeToUtc({ year, month, day, hour, minute }, settings.timeZone)
+          : new Date(year, month - 1, day, hour, minute, 0, 0);
+
+        const sunPos = SunCalc.getPosition(date, settings.latitude, settings.longitude);
+        if (sunPos.altitude <= 0) continue;
+
+        const phi = sunPos.altitude;
+        const theta = sunPos.azimuth;
+        const sunDir = new THREE.Vector3(
+          Math.cos(phi) * -Math.sin(theta),
+          Math.cos(phi) * -Math.cos(theta),
+          Math.sin(phi)
+        ).normalize();
+
+        const lightPos = center.clone().addScaledVector(sunDir, distance);
+        sunCam.position.copy(lightPos);
+        sunCam.up.copy(Math.abs(sunDir.dot(upZ)) > 0.95 ? upY : upZ);
+        sunCam.lookAt(center);
+        sunCam.updateMatrixWorld(true);
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        let minZ = Infinity;
+        let maxZ = -Infinity;
+        for (const c0 of corners) {
+          temp.copy(c0).applyMatrix4(sunCam.matrixWorldInverse);
+          minX = Math.min(minX, temp.x);
+          maxX = Math.max(maxX, temp.x);
+          minY = Math.min(minY, temp.y);
+          maxY = Math.max(maxY, temp.y);
+          minZ = Math.min(minZ, temp.z);
+          maxZ = Math.max(maxZ, temp.z);
+        }
+
+        sunCam.left = minX - margin;
+        sunCam.right = maxX + margin;
+        sunCam.bottom = minY - margin;
+        sunCam.top = maxY + margin;
+        sunCam.near = Math.max(0.1, -maxZ - margin);
+        sunCam.far = Math.max(sunCam.near + 1, -minZ + margin);
+        sunCam.updateProjectionMatrix();
+
+        const prevTarget = renderer.getRenderTarget();
+        const prevOverride = scene.overrideMaterial;
+        for (let i = 0; i < depthIgnore.length; i += 1) {
+          prevIgnoreVisibility[i] = depthIgnore[i].visible;
+          depthIgnore[i].visible = false;
+        }
+        scene.overrideMaterial = depthMaterial;
+        renderer.setRenderTarget(depthTarget);
+        renderer.clear();
+        renderer.render(scene, sunCam);
+        renderer.readRenderTargetPixels(depthTarget, 0, 0, rtSize, rtSize, pixels);
+        renderer.setRenderTarget(prevTarget);
+        scene.overrideMaterial = prevOverride;
+        for (let i = 0; i < depthIgnore.length; i += 1) depthIgnore[i].visible = prevIgnoreVisibility[i];
+
+        totalSamples += 1;
+
+        for (let i = 0, j = 0; i < vertexCount; i += 1, j += 3) {
+          const worldX = posArr[j] + groundPos.x;
+          const worldY = posArr[j + 1] + groundPos.y;
+          const worldZ = posArr[j + 2] + groundPos.z;
+
+          temp.set(worldX, worldY, worldZ);
+          temp.applyMatrix4(sunCam.matrixWorldInverse);
+          temp.applyMatrix4(sunCam.projectionMatrix);
+
+          const u = temp.x * 0.5 + 0.5;
+          const v = temp.y * 0.5 + 0.5;
+          if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+
+          const px = Math.min(rtSize - 1, Math.max(0, Math.floor(u * (rtSize - 1))));
+          const py = Math.min(rtSize - 1, Math.max(0, Math.floor(v * (rtSize - 1))));
+          const idx = (py * rtSize + px) * 4;
+          const depth = unpackDepth(pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3]);
+          const pointDepth = temp.z * 0.5 + 0.5;
+          if (pointDepth <= depth + 0.0005) {
+            sunScore[i] += 1;
+          }
+        }
+
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }
+
+      if (sunAnalysisRunIdRef.current !== runId) canceled = true;
+
+      if (!canceled && totalSamples > 0) {
+        for (let i = 0; i < vertexCount; i += 1) {
+          sunScore[i] /= totalSamples;
+        }
+      }
+      if (!canceled) {
+        (groundGeometry.attributes.sunScore as THREE.BufferAttribute).needsUpdate = true;
+      }
+    } finally {
+      if (depthMaterial) depthMaterial.dispose();
+      if (depthTarget) depthTarget.dispose();
+      if (sunAnalysisRunIdRef.current !== runId && createdGroup && sceneRef.current) {
+        sceneRef.current.remove(createdGroup);
+        createdGroup.traverse(obj => {
+          const anyObj: any = obj as any;
+          if (anyObj.material) {
+            const mat = anyObj.material;
+            if (Array.isArray(mat)) mat.forEach((m: any) => m.dispose?.());
+            else mat.dispose?.();
+          }
+          if (anyObj.geometry) {
+            anyObj.geometry.dispose?.();
+          }
+        });
+      }
+      setIsSunAnalysisRunning(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!settings.shadows && isSunAnalysisEnabled) {
+      setIsSunAnalysisEnabled(false);
+      sunAnalysisRunIdRef.current += 1;
+      if (isSunAnalysisRunning) clearSunAnalysis(false);
+      else clearSunAnalysis(true);
+    }
+  }, [settings.shadows, isSunAnalysisEnabled, isSunAnalysisRunning]);
 
   useEffect(() => {
     let isMounted = true;
@@ -480,18 +899,49 @@ function App() {
   // 8. Display Mode
   useEffect(() => {
       if (!sceneRef.current) return;
-      const mode = displayMode || 'shadeWithEdge';
+      const normalizedMode = (displayMode === 'wireframe' ? 'edge' : displayMode) || 'shadeWithEdge';
+      const makeDisplayMaterial = (base: THREE.Material, mode: string) => {
+          const anyBase: any = base as any;
+          const color = anyBase?.color?.clone ? anyBase.color.clone() : new THREE.Color(0xffffff);
+          const map = anyBase.map || null;
+          const opacity = typeof anyBase.opacity === 'number' ? anyBase.opacity : 1;
+          const transparent = !!anyBase.transparent;
+          const side = typeof anyBase.side === 'number' ? anyBase.side : THREE.FrontSide;
+          const depthWrite = typeof anyBase.depthWrite === 'boolean' ? anyBase.depthWrite : true;
+          const depthTest = typeof anyBase.depthTest === 'boolean' ? anyBase.depthTest : true;
+
+          if (mode === 'pen') {
+              return new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 1, transparent: false, side, depthWrite: true, depthTest: true });
+          }
+          if (mode === 'edge') {
+              const m = new THREE.MeshBasicMaterial({ color, opacity: 1, transparent: false, side, wireframe: true, depthWrite: false, depthTest });
+              return m;
+          }
+          if (mode === 'shade' || mode === 'shadeWithEdge') {
+              return new THREE.MeshLambertMaterial({ color, map, opacity, transparent, side, depthWrite, depthTest });
+          }
+          return base.clone();
+      };
       sceneRef.current.traverse((child) => {
           if (child instanceof THREE.Mesh && child.userData.isModelMesh) {
-              const materials = Array.isArray(child.material) ? child.material : [child.material];
-              materials.forEach((mat: any) => {
-                  if (mat && typeof mat === 'object' && 'wireframe' in mat) {
-                      mat.wireframe = mode === 'wireframe';
-                  }
-              });
+              const currentMaterials = Array.isArray(child.material) ? child.material : [child.material];
+              if (!child.userData.baseMaterials) {
+                  child.userData.baseMaterials = currentMaterials.map((m: THREE.Material) => m.clone());
+              }
+              if (!child.userData.displayMaterialCache) {
+                  child.userData.displayMaterialCache = {};
+              }
+
+              const cache = child.userData.displayMaterialCache as Record<string, THREE.Material[]>;
+              if (!cache[normalizedMode]) {
+                  const baseMaterials = child.userData.baseMaterials as THREE.Material[];
+                  cache[normalizedMode] = baseMaterials.map((m) => makeDisplayMaterial(m, normalizedMode));
+              }
+              const nextMaterials = cache[normalizedMode];
+              child.material = (Array.isArray(child.material) ? nextMaterials : nextMaterials[0]);
           }
           if (child.name === 'SurfaceEdge') {
-              child.visible = mode !== 'shade';
+              child.visible = normalizedMode === 'shadeWithEdge' || normalizedMode === 'pen';
           }
       });
   }, [sceneRef, displayMode]);
@@ -836,6 +1286,32 @@ function App() {
                 <Suspense fallback={null}>
                   <ShadowsDateTimeFields settings={settings} updateSettings={updateSettings} />
                 </Suspense>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    日照分析
+                  </Text>
+                  <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+                    <Button
+                      appearance={isSunAnalysisEnabled ? "primary" : "secondary"}
+                      size="small"
+                      disabled={!settings.shadows || (isSunAnalysisRunning && !isSunAnalysisEnabled)}
+                      onClick={() => {
+                        const next = !isSunAnalysisEnabled;
+                        setIsSunAnalysisEnabled(next);
+                        if (next) {
+                          void runSunAnalysis();
+                        } else {
+                          sunAnalysisRunIdRef.current += 1;
+                          if (isSunAnalysisRunning) clearSunAnalysis(false);
+                          else clearSunAnalysis(true);
+                        }
+                      }}
+                      style={{ width: '100%' }}
+                    >
+                      {isSunAnalysisEnabled ? '停止' : '开始'}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </AccordionPanel>
           </AccordionItem>

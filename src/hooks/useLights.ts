@@ -336,7 +336,8 @@ export function useLights(
       box.getSize(size);
       
       const maxDim = Math.max(size.x, size.y);
-      const groundSize = Math.max(maxDim * 10, 10000);
+      const groundSize = maxDim * 5;
+      const center = box.getCenter(new THREE.Vector3());
       
       if (groundRef.current) {
           sceneRef.current.remove(groundRef.current);
@@ -348,7 +349,7 @@ export function useLights(
       const ground = new THREE.Mesh(groundGeometry, groundMaterial);
       ground.name = 'Ground';
       
-      ground.position.set(0, 0, 0);
+      ground.position.set(center.x, center.y, box.min.z);
       ground.receiveShadow = true;
       
       sceneRef.current.add(ground);

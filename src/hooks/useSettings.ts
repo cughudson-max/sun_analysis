@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export type DisplayMode = 'shade' | 'shadeWithEdge' | 'wireframe';
+export type DisplayMode = 'shade' | 'shadeWithEdge' | 'pen' | 'edge' | 'wireframe';
 
 export interface ViewerSettings {
     bgTop: string;

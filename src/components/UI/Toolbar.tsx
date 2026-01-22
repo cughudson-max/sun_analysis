@@ -9,19 +9,21 @@ import perspectiveIcon from '../../icon/Perspective.svg';
 import shadeIcon from '../../icon/shade.svg';
 import shadeWithEdgeIcon from '../../icon/shadeWithEdge.svg';
 import wireframeIcon from '../../icon/wireframe.svg';
+import penIcon from '../../icon/pen.svg';
 import sectionIcon from '../../icon/section.svg';
 import sectionActiveIcon from '../../icon/section_active.svg';
+import type { DisplayMode } from '../../hooks/useSettings';
 
 interface ToolbarProps {
     isMeasureActive: boolean;
     isOrtho: boolean;
-    displayMode: 'shade' | 'shadeWithEdge' | 'wireframe';
+    displayMode: DisplayMode;
     onMeasureClick: () => void;
     onUndo: () => void;
     onRedo: () => void;
     onClear: () => void;
     onToggleProjection: () => void;
-    onChangeDisplayMode: (mode: 'shade' | 'shadeWithEdge' | 'wireframe') => void;
+    onChangeDisplayMode: (mode: DisplayMode) => void;
     isClippingActive: boolean;
     onToggleClipping: () => void;
     onFlipClipping: () => void;
@@ -66,12 +68,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         };
     }, [isDisplayMenuOpen, isClippingMenuOpen]);
 
+    const normalizedDisplayMode = displayMode === 'wireframe' ? 'edge' : displayMode;
     const currentDisplayIcon =
-        displayMode === 'shade'
+        normalizedDisplayMode === 'shade'
             ? shadeIcon
-            : displayMode === 'wireframe'
-            ? wireframeIcon
-            : shadeWithEdgeIcon;
+            : normalizedDisplayMode === 'shadeWithEdge'
+            ? shadeWithEdgeIcon
+            : normalizedDisplayMode === 'pen'
+            ? penIcon
+            : wireframeIcon;
 
     return (
         <div className="toolbar">
@@ -86,7 +91,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               {isDisplayMenuOpen && (
                   <div className="toolbar-menu">
                       <button
-                          className={`toolbar-menu-item ${displayMode === 'shadeWithEdge' ? 'active' : ''}`}
+                          className={`toolbar-menu-item ${normalizedDisplayMode === 'shadeWithEdge' ? 'active' : ''}`}
                           onClick={() => {
                               onChangeDisplayMode('shadeWithEdge');
                               setIsDisplayMenuOpen(false);
@@ -96,7 +101,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                           <img src={shadeWithEdgeIcon} alt="Shade With Edge" width={18} height={18} />
                       </button>
                       <button
-                          className={`toolbar-menu-item ${displayMode === 'shade' ? 'active' : ''}`}
+                          className={`toolbar-menu-item ${normalizedDisplayMode === 'shade' ? 'active' : ''}`}
                           onClick={() => {
                               onChangeDisplayMode('shade');
                               setIsDisplayMenuOpen(false);
@@ -106,14 +111,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                           <img src={shadeIcon} alt="Shade" width={18} height={18} />
                       </button>
                       <button
-                          className={`toolbar-menu-item ${displayMode === 'wireframe' ? 'active' : ''}`}
+                          className={`toolbar-menu-item ${normalizedDisplayMode === 'pen' ? 'active' : ''}`}
                           onClick={() => {
-                              onChangeDisplayMode('wireframe');
+                              onChangeDisplayMode('pen');
                               setIsDisplayMenuOpen(false);
                           }}
-                          title="Wireframe"
+                          title="Pen"
                       >
-                          <img src={wireframeIcon} alt="Wireframe" width={18} height={18} />
+                          <img src={penIcon} alt="Pen" width={18} height={18} />
+                      </button>
+                      <button
+                          className={`toolbar-menu-item ${normalizedDisplayMode === 'edge' ? 'active' : ''}`}
+                          onClick={() => {
+                              onChangeDisplayMode('edge');
+                              setIsDisplayMenuOpen(false);
+                          }}
+                          title="Edge"
+                      >
+                          <img src={wireframeIcon} alt="Edge" width={18} height={18} />
                       </button>
                   </div>
               )}

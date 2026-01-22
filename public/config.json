@@ -1,20 +1,11 @@
 {
-	//亮度
   "brightness": 5,
-	//环境光亮度
   "ambientIntensity": 1,
-	//环境光颜色
   "ambientColor": "#ffffff",
-	//背景上部颜色
   "topColor": "#3CD0FC",
-	//背景下部颜色
   "bottomColor": "#ffffff",
-	//是否启用阴影
   "EnabledShadow": false,
-	//是否合并几何体，开启此项可提升渲染效率，但会丢失贴图
   "MergeGeometry": false,
-	//是否加载多个文件，如果加载多个文件，则会向视口中加载多个文件，且加载过程中不会清除之前加载的模型
   "LoadMultiFile": true,
-	//待加载文件名称
   "3dm": []
 }

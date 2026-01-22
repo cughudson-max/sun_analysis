@@ -421,7 +421,8 @@ export function useRhinoLoader(
                 }
             });
 
-            const isEdgeVisible = displayMode !== 'shade';
+            const normalizedDisplayMode = displayMode === 'wireframe' ? 'edge' : displayMode;
+            const isEdgeVisible = normalizedDisplayMode === 'shadeWithEdge' || normalizedDisplayMode === 'pen';
             if (mergeGeometry) {
                 mergeStaticMeshes(object, isEdgeVisible);
             }
