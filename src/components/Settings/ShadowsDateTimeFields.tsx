@@ -5,6 +5,8 @@ import { useState, useEffect, useRef } from 'react';
 import type { ViewerSettings } from '../../hooks/useSettings';
 import playIcon from '../../icon/play.svg';
 import pauseIcon from '../../icon/pause.svg';
+import playDisabledIcon from '../../icon/play_disabled.svg';
+import pauseDisabledIcon from '../../icon/pause_disabled.svg';
 
 function getNowParts(timeZone?: string) {
   const now = new Date();
@@ -152,7 +154,7 @@ export default function ShadowsDateTimeFields({
           />
           <Button
             appearance="transparent"
-            icon={<img src={isPlaying ? pauseIcon : playIcon} style={{ width: 14, height: 14 }} alt={isPlaying ? "停止" : "开始"} />}
+            icon={<img src={!settings.shadows ? (isPlaying ? pauseDisabledIcon : playDisabledIcon) : (isPlaying ? pauseIcon : playIcon)} style={{ width: 14, height: 14 }} alt={isPlaying ? "停止" : "开始"} />}
             onClick={() => setIsPlaying(!isPlaying)}
             disabled={!settings.shadows}
             title={isPlaying ? "停止" : "开始"}

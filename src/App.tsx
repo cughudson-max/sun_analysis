@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import SunCalc from 'suncalc';
 
-import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel, Combobox, Option, makeStyles, useId } from '@fluentui/react-components';
+import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popover, PopoverTrigger, PopoverSurface, Accordion, AccordionHeader, AccordionItem, AccordionPanel, Combobox, Dropdown, Option, makeStyles, useId } from '@fluentui/react-components';
 
 import tzLookupRaw from 'tz-lookup/tz.js?raw';
 
@@ -22,6 +22,7 @@ import { useSelection } from './hooks/useSelection';
 import { useMeasurement } from './hooks/useMeasurement';
 import { useRhinoLoader } from './hooks/useRhinoLoader';
 import { useClipping } from './hooks/useClipping';
+import { gradients, getGradientCss } from './utils/gradients';
 
 import ViewCube from './components/ViewCube';
 import { Toolbar } from './components/UI/Toolbar';
@@ -335,10 +336,34 @@ function App() {
   const settingsPanelWidth = 364;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isSunAnalysisRunning, setIsSunAnalysisRunning] = useState(false);
+  const [maxSunHours, setMaxSunHours] = useState(0);
   const [isSunAnalysisEnabled, setIsSunAnalysisEnabled] = useState(false);
   const sunAnalysisGroupRef = useRef<THREE.Group | null>(null);
   const sunAnalysisTextureRef = useRef<THREE.Texture | null>(null);
   const sunAnalysisRunIdRef = useRef(0);
+  const [selectedGradient, setSelectedGradient] = useState('turbo');
+
+  const generateGradientTexture = (name: string) => {
+    const stops = gradients[name] || gradients['turbo'];
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createLinearGradient(0, 0, 256, 0);
+      stops.forEach(stop => {
+        grad.addColorStop(stop.offset, stop.color);
+      });
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 256, 1);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  };
 
   // 1. Settings
   const { settings, updateSettings, configLoaded } = useSettings();
@@ -385,7 +410,12 @@ function App() {
       });
     }
     if (dispose && sunAnalysisTextureRef.current) {
-      sunAnalysisTextureRef.current.dispose();
+      const tex = sunAnalysisTextureRef.current;
+      // Check if there is an associated render target to dispose
+      if ((tex as any)._renderTarget) {
+          ((tex as any)._renderTarget as THREE.WebGLRenderTarget).dispose();
+      }
+      tex.dispose();
       sunAnalysisTextureRef.current = null;
     }
     sunAnalysisGroupRef.current = null;
@@ -456,10 +486,17 @@ function App() {
         polygonOffset: true,
         polygonOffsetFactor: -1.0,
         polygonOffsetUnits: -1.0,
+        extensions: {
+            derivatives: true
+        },
         uniforms: {
           uOpacity: { value: 0.78 },
           uTextMap: { value: null },
-          uHasText: { value: 0.0 }
+          uHasText: { value: 0.0 },
+          uGradientMap: { value: generateGradientTexture(selectedGradient) },
+          uAccumMap: { value: null },
+          uTotalSamples: { value: 1.0 },
+          uGridSegments: { value: gridSegments }
         },
         vertexShader: `
           attribute float sunScore;
@@ -477,19 +514,34 @@ function App() {
           uniform float uOpacity;
           uniform sampler2D uTextMap;
           uniform float uHasText;
+          uniform sampler2D uGradientMap;
+          uniform sampler2D uAccumMap;
+          uniform float uTotalSamples;
+          uniform float uGridSegments;
           
-          vec3 ramp(float t) {
-            t = clamp(t, 0.0, 1.0);
-            vec3 c1 = vec3(0.10, 0.25, 0.85);
-            vec3 c2 = vec3(0.10, 0.75, 0.55);
-            vec3 c3 = vec3(0.98, 0.86, 0.25);
-            vec3 c4 = vec3(0.85, 0.15, 0.10);
-            if (t < 0.33) return mix(c1, c2, t / 0.33);
-            if (t < 0.66) return mix(c2, c3, (t - 0.33) / 0.33);
-            return mix(c3, c4, (t - 0.66) / 0.34);
-          }
           void main() {
-            vec3 color = ramp(vScore);
+            float score = 0.0;
+            // Use high-res accumulation texture if available
+            if (uTotalSamples > 0.0) {
+                 vec4 accum = texture2D(uAccumMap, vUv);
+                 // Red channel is 0..1 representing 0..255 hits
+                 float hits = accum.r * 255.0;
+                 score = hits / uTotalSamples;
+            } else {
+                 score = vScore; // Fallback
+            }
+
+            vec3 color = texture2D(uGradientMap, vec2(score, 0.5)).rgb;
+            
+            // Grid Lines
+            // Use fwidth for constant pixel width line
+            vec2 grid = abs(fract(vUv * uGridSegments - 0.5) - 0.5) / fwidth(vUv * uGridSegments);
+            float line = min(grid.x, grid.y);
+            float gridAlpha = 1.0 - min(line, 1.0);
+            
+            // Mix grid color (black, 20% opacity)
+            color = mix(color, vec3(0.0), gridAlpha * 0.2);
+
             vec4 baseColor = vec4(color, uOpacity);
             
             if (uHasText > 0.5) {
@@ -507,6 +559,7 @@ function App() {
       const groundMesh = new THREE.Mesh(groundGeometry, sunMaterial);
       groundMesh.name = 'GroundAcceptShadow';
       groundMesh.position.set(center.x, center.y, baseZ);
+      groundMesh.updateMatrixWorld(true); // Ensure matrix is up to date
       groundMesh.receiveShadow = true;
       const groundPos = groundMesh.position;
 
@@ -542,7 +595,7 @@ function App() {
       depthMaterial.side = THREE.DoubleSide;
 
       // GPU Accumulation Setup
-      const accumSize = 256; // Sufficient for 50x50 grid
+      const accumSize = 1024; // Increased resolution for better sampling
       accumTarget = new THREE.WebGLRenderTarget(accumSize, accumSize, {
         minFilter: THREE.NearestFilter,
         magFilter: THREE.NearestFilter,
@@ -561,12 +614,14 @@ function App() {
         uniforms: {
           shadowMap: { value: null },
           sunViewMatrix: { value: new THREE.Matrix4() },
-          sunProjMatrix: { value: new THREE.Matrix4() }
+          sunProjMatrix: { value: new THREE.Matrix4() },
+          uGroundRect: { value: new THREE.Vector4(center.x - groundW / 2, center.y - groundH / 2, groundW, groundH) },
+          uGroundZ: { value: baseZ }
         },
         vertexShader: `
-          varying vec3 vWorldPos;
+          varying vec2 vUv;
           void main() {
-            vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+            vUv = uv;
             // Map UV to NDC (-1 to 1) to cover the render target
             gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
           }
@@ -575,12 +630,21 @@ function App() {
           uniform sampler2D shadowMap;
           uniform mat4 sunViewMatrix;
           uniform mat4 sunProjMatrix;
-          varying vec3 vWorldPos;
+          uniform vec4 uGroundRect; // x, y, width, height
+          uniform float uGroundZ;
+          varying vec2 vUv;
 
           #include <packing>
 
           void main() {
-            vec4 shadowPos = sunProjMatrix * sunViewMatrix * vec4(vWorldPos, 1.0);
+            // Reconstruct World Position from UV
+            vec3 worldPos = vec3(
+                uGroundRect.x + vUv.x * uGroundRect.z,
+                uGroundRect.y + vUv.y * uGroundRect.w,
+                uGroundZ
+            );
+
+            vec4 shadowPos = sunProjMatrix * sunViewMatrix * vec4(worldPos, 1.0);
             vec3 shadowCoords = shadowPos.xyz / shadowPos.w;
             shadowCoords = shadowCoords * 0.5 + 0.5;
 
@@ -601,9 +665,7 @@ function App() {
                     gl_FragColor = vec4(0.0);
                 }
             } else {
-                // Outside light frustum. 
-                // If the frustum fits the Casters (Objects), then being outside means 
-                // the ray didn't hit any caster. So it's Lit.
+                // Outside light frustum -> Lit
                 gl_FragColor = vec4(1.0/255.0, 0.0, 0.0, 1.0);
             }
           }
@@ -737,6 +799,8 @@ function App() {
         // 1. Render Shadow Map
         const prevTarget = renderer.getRenderTarget();
         const prevOverride = scene.overrideMaterial;
+        const prevAutoClear = renderer.autoClear;
+        
         for (let i = 0; i < depthIgnore.length; i += 1) {
           prevIgnoreVisibility[i] = depthIgnore[i].visible;
           depthIgnore[i].visible = false;
@@ -758,6 +822,8 @@ function App() {
         analysisMaterial.uniforms.sunProjMatrix.value = sunCam.projectionMatrix;
         
         renderer.setRenderTarget(accumTarget);
+        renderer.autoClear = false; // CRITICAL: Prevent clearing accumulation buffer
+        
         // Do NOT clear here, we accumulate
         groundMesh.material = analysisMaterial;
         const prevFrustumCulled = groundMesh.frustumCulled;
@@ -765,11 +831,17 @@ function App() {
         
         renderer.render(groundMesh, dummyCam);
         
+        renderer.autoClear = prevAutoClear; // Restore global state
         groundMesh.frustumCulled = prevFrustumCulled;
         groundMesh.material = sunMaterial; // Restore material
         renderer.setRenderTarget(prevTarget);
 
         totalSamples += 1;
+        
+        // Update visualization in real-time
+        sunMaterial.uniforms.uAccumMap.value = accumTarget.texture;
+        sunMaterial.uniforms.uTotalSamples.value = totalSamples;
+        setMaxSunHours(totalSamples * 0.5);
 
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
@@ -845,7 +917,15 @@ function App() {
     } finally {
       if (depthMaterial) depthMaterial.dispose();
       if (depthTarget) depthTarget.dispose();
-      if (accumTarget) accumTarget.dispose();
+      
+      if (sunAnalysisRunIdRef.current === runId && !canceled && accumTarget) {
+         // Keep accumTarget for display
+         sunAnalysisTextureRef.current = accumTarget.texture;
+         (accumTarget.texture as any)._renderTarget = accumTarget;
+      } else {
+         if (accumTarget) accumTarget.dispose();
+      }
+
       if (analysisMaterial) analysisMaterial.dispose();
       if (sunAnalysisRunIdRef.current !== runId && createdGroup && sceneRef.current) {
         sceneRef.current.remove(createdGroup);
@@ -880,6 +960,21 @@ function App() {
     settings.timeZone,
     isSunAnalysisEnabled
   ]);
+
+  useEffect(() => {
+    if (sunAnalysisGroupRef.current) {
+      const group = sunAnalysisGroupRef.current;
+      const ground = group.getObjectByName('GroundAcceptShadow') as THREE.Mesh;
+      if (ground && ground.material) {
+        const mat = ground.material as THREE.ShaderMaterial;
+        if (mat.uniforms && mat.uniforms.uGradientMap) {
+           const oldTex = mat.uniforms.uGradientMap.value;
+           mat.uniforms.uGradientMap.value = generateGradientTexture(selectedGradient);
+           if (oldTex) oldTex.dispose();
+        }
+      }
+    }
+  }, [selectedGradient]);
 
   useEffect(() => {
     if (!settings.shadows && isSunAnalysisEnabled) {
@@ -1201,6 +1296,49 @@ function App() {
         )}
       </div>
 
+      {/* Sun Analysis Legend */}
+      {isSunAnalysisEnabled && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 60,
+            right: isSettingsPanelOpen ? settingsPanelWidth + 20 : 20,
+            background: 'rgba(255, 255, 255, 0.9)',
+            padding: '12px 8px',
+            borderRadius: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            pointerEvents: 'none',
+            zIndex: 1000,
+            transition: 'right 0.2s ease',
+            border: '1px solid #ccc',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            fontSize: '12px',
+            color: '#333'
+          }}
+        >
+           <Text weight="semibold" style={{ alignSelf: 'center', marginBottom: 4 }}>日照时长 (h)</Text>
+           <div style={{ display: 'flex', height: 160, alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', textAlign: 'right', padding: '2px 0' }}>
+                 <span style={{ lineHeight: 1 }}>{maxSunHours.toFixed(1)}</span>
+                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.75).toFixed(1)}</span>
+                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.5).toFixed(1)}</span>
+                 <span style={{ lineHeight: 1 }}>{(maxSunHours * 0.25).toFixed(1)}</span>
+                 <span style={{ lineHeight: 1 }}>0.0</span>
+              </div>
+              <div 
+                 style={{ 
+                    width: 24, 
+                    background: getGradientCss(gradients[selectedGradient] || gradients['turbo'], '0deg'),
+                    border: '1px solid #999',
+                    borderRadius: 2
+                 }} 
+              />
+           </div>
+        </div>
+      )}
+
       <div
         className="settings-panel-shell"
         data-open={isSettingsPanelOpen ? 'true' : 'false'}
@@ -1474,6 +1612,38 @@ function App() {
                 <Suspense fallback={null}>
                   <ShadowsDateTimeFields settings={settings} updateSettings={updateSettings} />
                 </Suspense>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    颜色映射
+                  </Text>
+                  <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+                    <Dropdown
+                      disabled={!settings.shadows}
+                      selectedOptions={[selectedGradient]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSelectedGradient(data.optionValue);
+                      }}
+                      listbox={{ style: { display: 'flex', flexDirection: 'column', gap: '2px' } }}
+                      style={{ 
+                        width: '100%',
+                        height: 28, 
+                        minHeight: 28,
+                        backgroundImage: getGradientCss(gradients[selectedGradient] || gradients['turbo']),
+                        backgroundRepeat: 'no-repeat',
+                        backgroundSize: 'calc(100% - 32px) 100%',
+                        backgroundPosition: 'left center',
+                        color: 'transparent',
+                        filter: !settings.shadows ? 'grayscale(1)' : 'none'
+                      }}
+                    >
+                      {Object.keys(gradients).map((name) => (
+                        <Option key={name} value={name} text="">
+                          <div style={{ width: '100%', height: 20, background: getGradientCss(gradients[name]) }} />
+                        </Option>
+                      ))}
+                    </Dropdown>
+                  </div>
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
                     日照分析
