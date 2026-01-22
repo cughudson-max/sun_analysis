@@ -507,6 +507,7 @@ function App() {
       const baseZ = box.min.z;
       const groundW = Math.max(size.x, 1) * 5;
       const groundH = Math.max(size.y, 1) * 5;
+      
 
       clearSunAnalysis(true);
 
@@ -598,7 +599,6 @@ function App() {
       groundMesh.position.set(center.x, center.y, baseZ);
       groundMesh.updateMatrixWorld(true); // Ensure matrix is up to date
       groundMesh.receiveShadow = true;
-      const groundPos = groundMesh.position;
 
       const groundCorners = [
         new THREE.Vector3(center.x - groundW / 2, center.y - groundH / 2, baseZ),
