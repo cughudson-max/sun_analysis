@@ -204,6 +204,13 @@ export function useLights(
         shadowFitCamera.lookAt(center);
         shadowFitCamera.updateMatrixWorld(true);
         const viewMatrix = shadowFitCamera.matrixWorldInverse;
+        
+        // Calculate Ground parameters to include in frustum
+        const maxDimPlane = Math.max(size.x, size.y);
+        const groundSize = maxDimPlane * 5;
+        const groundHalf = groundSize / 2;
+        const groundZ = box.min.z;
+        
         const corners: THREE.Vector3[] = [
             new THREE.Vector3(box.min.x, box.min.y, box.min.z),
             new THREE.Vector3(box.min.x, box.min.y, box.max.z),
@@ -212,7 +219,12 @@ export function useLights(
             new THREE.Vector3(box.max.x, box.min.y, box.min.z),
             new THREE.Vector3(box.max.x, box.min.y, box.max.z),
             new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-            new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+            new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+            // Ground corners
+            new THREE.Vector3(center.x - groundHalf, center.y - groundHalf, groundZ),
+            new THREE.Vector3(center.x + groundHalf, center.y - groundHalf, groundZ),
+            new THREE.Vector3(center.x - groundHalf, center.y + groundHalf, groundZ),
+            new THREE.Vector3(center.x + groundHalf, center.y + groundHalf, groundZ)
         ];
 
         let minX = Infinity;

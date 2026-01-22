@@ -1,7 +1,10 @@
-import { Text } from '@fluentui/react-components';
+import { Text, Button } from '@fluentui/react-components';
 import { DatePicker } from '@fluentui/react-datepicker-compat';
 import { TimePicker } from '@fluentui/react-timepicker-compat';
+import { useState, useEffect, useRef } from 'react';
 import type { ViewerSettings } from '../../hooks/useSettings';
+import playIcon from '../../icon/play.svg';
+import pauseIcon from '../../icon/pause.svg';
 
 function getNowParts(timeZone?: string) {
   const now = new Date();
@@ -52,6 +55,33 @@ export default function ShadowsDateTimeFields({
 }) {
   const nowParts = getNowParts(settings.timeZone);
   const currentHour = nowParts.hour + nowParts.minute / 60;
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isPlaying) {
+      intervalRef.current = window.setInterval(() => {
+        // Accumulate 0.5 hours (30 minutes) every tick
+        const step = 0.5;
+        const current = settings.hour ?? currentHour;
+        let next = current + step;
+        if (next >= 24) next = next % 24;
+        updateSettings({ hour: next });
+      }, 500);
+    } else {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+    return () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [isPlaying, settings.hour, currentHour, updateSettings]);
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
@@ -85,10 +115,10 @@ export default function ShadowsDateTimeFields({
         <Text size={200} style={{ minWidth: 64 }}>
           时间
         </Text>
-        <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+        <div className="settings-control" style={{ flex: 1, paddingRight: 4, display: 'flex', gap: 4 }}>
           <TimePicker
             freeform
-            style={{ width: '100%', boxSizing: 'border-box', height: 28, minHeight: 28 }}
+            style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', height: 28, minHeight: 28 }}
             disabled={!settings.shadows}
             placeholder="选择时间"
             value={(() => {
@@ -119,6 +149,14 @@ export default function ShadowsDateTimeFields({
               const clamped = Math.max(0, Math.min(23.99, hourValue));
               updateSettings({ hour: clamped });
             }}
+          />
+          <Button
+            appearance="transparent"
+            icon={<img src={isPlaying ? pauseIcon : playIcon} style={{ width: 14, height: 14 }} alt={isPlaying ? "停止" : "开始"} />}
+            onClick={() => setIsPlaying(!isPlaying)}
+            disabled={!settings.shadows}
+            title={isPlaying ? "停止" : "开始"}
+            style={{ minWidth: 28, padding: 0 }}
           />
         </div>
       </div>

@@ -394,12 +394,14 @@ function App() {
   const runSunAnalysis = async () => {
     if (!sceneRef.current) return;
     if (!rendererRef.current) return;
-    if (isSunAnalysisRunning) return;
-    const runId = (sunAnalysisRunIdRef.current += 1);
+    // Don't block if already running, we will check runId
+    const runId = sunAnalysisRunIdRef.current;
     setIsSunAnalysisRunning(true);
     let createdGroup: THREE.Group | null = null;
     let depthTarget: THREE.WebGLRenderTarget | null = null;
     let depthMaterial: THREE.MeshDepthMaterial | null = null;
+    let accumTarget: THREE.WebGLRenderTarget | null = null;
+    let analysisMaterial: THREE.ShaderMaterial | null = null;
     try {
       const scene = sceneRef.current;
       const renderer = rendererRef.current;
@@ -421,6 +423,8 @@ function App() {
         if (child.name === 'selection-box') return;
         if (child.name === 'HighlightLine') return;
         if (child.name === 'HighlightPoint') return;
+        if (child.name === 'GroupAcceptShadow') return;
+        if (child.name === 'GroundAcceptShadow') return;
         if (child instanceof THREE.GridHelper) return;
         if (child instanceof THREE.AxesHelper) return;
         box.expandByObject(child);
@@ -439,7 +443,7 @@ function App() {
 
       clearSunAnalysis(true);
 
-      const gridSegments = 199;
+      const gridSegments = 50;
       const groundGeometry = new THREE.PlaneGeometry(groundW, groundH, gridSegments, gridSegments);
       const vertexCount = groundGeometry.attributes.position.count;
       const sunScore = new Float32Array(vertexCount);
@@ -449,20 +453,31 @@ function App() {
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1.0,
+        polygonOffsetUnits: -1.0,
         uniforms: {
-          uOpacity: { value: 0.78 }
+          uOpacity: { value: 0.78 },
+          uTextMap: { value: null },
+          uHasText: { value: 0.0 }
         },
         vertexShader: `
           attribute float sunScore;
           varying float vScore;
+          varying vec2 vUv;
           void main() {
             vScore = sunScore;
+            vUv = uv;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `,
         fragmentShader: `
           varying float vScore;
+          varying vec2 vUv;
           uniform float uOpacity;
+          uniform sampler2D uTextMap;
+          uniform float uHasText;
+          
           vec3 ramp(float t) {
             t = clamp(t, 0.0, 1.0);
             vec3 c1 = vec3(0.10, 0.25, 0.85);
@@ -475,7 +490,16 @@ function App() {
           }
           void main() {
             vec3 color = ramp(vScore);
-            gl_FragColor = vec4(color, uOpacity);
+            vec4 baseColor = vec4(color, uOpacity);
+            
+            if (uHasText > 0.5) {
+                vec4 texColor = texture2D(uTextMap, vUv);
+                vec3 finalRgb = mix(baseColor.rgb, vec3(0.0), texColor.a);
+                float finalAlpha = max(baseColor.a, texColor.a); 
+                gl_FragColor = vec4(finalRgb, finalAlpha);
+            } else {
+                gl_FragColor = baseColor;
+            }
           }
         `
       });
@@ -486,6 +510,13 @@ function App() {
       groundMesh.receiveShadow = true;
       const groundPos = groundMesh.position;
 
+      const groundCorners = [
+        new THREE.Vector3(center.x - groundW / 2, center.y - groundH / 2, baseZ),
+        new THREE.Vector3(center.x + groundW / 2, center.y - groundH / 2, baseZ),
+        new THREE.Vector3(center.x - groundW / 2, center.y + groundH / 2, baseZ),
+        new THREE.Vector3(center.x + groundW / 2, center.y + groundH / 2, baseZ)
+      ];
+
       const group = new THREE.Group();
       group.name = 'GroupAcceptShadow';
       group.add(groundMesh);
@@ -493,7 +524,7 @@ function App() {
       createdGroup = group;
       sunAnalysisGroupRef.current = group;
 
-      const rtSize = 512;
+      const rtSize = 2048;
       depthTarget = new THREE.WebGLRenderTarget(rtSize, rtSize, {
         minFilter: THREE.NearestFilter,
         magFilter: THREE.NearestFilter,
@@ -510,9 +541,76 @@ function App() {
       depthMaterial.blending = THREE.NoBlending;
       depthMaterial.side = THREE.DoubleSide;
 
-      const pixels = new Uint8Array(rtSize * rtSize * 4);
-      const temp = new THREE.Vector3();
-      const corners: THREE.Vector3[] = [
+      // GPU Accumulation Setup
+      const accumSize = 256; // Sufficient for 50x50 grid
+      accumTarget = new THREE.WebGLRenderTarget(accumSize, accumSize, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        depthBuffer: false,
+        stencilBuffer: false
+      });
+      
+      analysisMaterial = new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        uniforms: {
+          shadowMap: { value: null },
+          sunViewMatrix: { value: new THREE.Matrix4() },
+          sunProjMatrix: { value: new THREE.Matrix4() }
+        },
+        vertexShader: `
+          varying vec3 vWorldPos;
+          void main() {
+            vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+            // Map UV to NDC (-1 to 1) to cover the render target
+            gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D shadowMap;
+          uniform mat4 sunViewMatrix;
+          uniform mat4 sunProjMatrix;
+          varying vec3 vWorldPos;
+
+          #include <packing>
+
+          void main() {
+            vec4 shadowPos = sunProjMatrix * sunViewMatrix * vec4(vWorldPos, 1.0);
+            vec3 shadowCoords = shadowPos.xyz / shadowPos.w;
+            shadowCoords = shadowCoords * 0.5 + 0.5;
+
+            // Check if point is inside the shadow camera frustum
+            if (shadowCoords.x >= 0.0 && shadowCoords.x <= 1.0 &&
+                shadowCoords.y >= 0.0 && shadowCoords.y <= 1.0 &&
+                shadowCoords.z >= 0.0 && shadowCoords.z <= 1.0) {
+                
+                float depth = unpackRGBAToDepth(texture2D(shadowMap, shadowCoords.xy));
+                float currentDepth = shadowCoords.z;
+                
+                // Bias to prevent acne
+                if (currentDepth <= depth + 0.0001) {
+                    // Lit: Accumulate 1 unit (1/255)
+                    gl_FragColor = vec4(1.0/255.0, 0.0, 0.0, 1.0);
+                } else {
+                    // Shadowed
+                    gl_FragColor = vec4(0.0);
+                }
+            } else {
+                // Outside light frustum. 
+                // If the frustum fits the Casters (Objects), then being outside means 
+                // the ray didn't hit any caster. So it's Lit.
+                gl_FragColor = vec4(1.0/255.0, 0.0, 0.0, 1.0);
+            }
+          }
+        `
+      });
+
+      const casterCorners: THREE.Vector3[] = [
         new THREE.Vector3(box.min.x, box.min.y, box.min.z),
         new THREE.Vector3(box.min.x, box.min.y, box.max.z),
         new THREE.Vector3(box.min.x, box.max.y, box.min.z),
@@ -522,6 +620,11 @@ function App() {
         new THREE.Vector3(box.max.x, box.max.y, box.min.z),
         new THREE.Vector3(box.max.x, box.max.y, box.max.z)
       ];
+      
+      const allCorners: THREE.Vector3[] = [
+        ...casterCorners,
+        ...groundCorners
+      ];
 
       const sunCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
       const upZ = new THREE.Vector3(0, 0, 1);
@@ -530,20 +633,13 @@ function App() {
       const distance = Math.max(1000, maxDim * 3);
       const margin = Math.max(10, maxDim * 0.2);
 
-      const unpackDepth = (r: number, g: number, b: number, a: number) => {
-        const rf = r / 255;
-        const gf = g / 255;
-        const bf = b / 255;
-        const af = a / 255;
-        return rf / (256 * 256 * 256) + gf / (256 * 256) + bf / 256 + af;
-      };
+      const temp = new THREE.Vector3();
 
       const { year: nowYear, month: nowMonth, day: nowDay } = getNowParts(settings.timeZone);
       const year = nowYear;
       const month = settings.month ?? nowMonth;
       const day = settings.day ?? nowDay;
 
-      const posArr = groundGeometry.attributes.position.array as Float32Array;
       let totalSamples = 0;
       let canceled = false;
       const hideNames = new Set([
@@ -567,6 +663,15 @@ function App() {
         if (hideNames.has(obj.name)) depthIgnore.push(obj);
       });
       const prevIgnoreVisibility = new Array<boolean>(depthIgnore.length);
+
+      // Clear accumulation target
+      renderer.setRenderTarget(accumTarget);
+      renderer.setClearColor(0x000000, 0.0);
+      renderer.clear();
+      renderer.setRenderTarget(null);
+
+      // Dummy camera for full-screen pass
+      const dummyCam = new THREE.Camera();
 
       for (let h = 0; h < 24; h += 0.5) {
         if (sunAnalysisRunIdRef.current !== runId) {
@@ -596,6 +701,7 @@ function App() {
         sunCam.up.copy(Math.abs(sunDir.dot(upZ)) > 0.95 ? upY : upZ);
         sunCam.lookAt(center);
         sunCam.updateMatrixWorld(true);
+        sunCam.matrixWorldInverse.copy(sunCam.matrixWorld).invert();
 
         let minX = Infinity;
         let maxX = -Infinity;
@@ -603,14 +709,21 @@ function App() {
         let maxY = -Infinity;
         let minZ = Infinity;
         let maxZ = -Infinity;
-        for (const c0 of corners) {
+        
+        // Fit X/Y to Casters Only (High Resolution for Shadows)
+        for (const c0 of casterCorners) {
           temp.copy(c0).applyMatrix4(sunCam.matrixWorldInverse);
           minX = Math.min(minX, temp.x);
           maxX = Math.max(maxX, temp.x);
           minY = Math.min(minY, temp.y);
           maxY = Math.max(maxY, temp.y);
-          minZ = Math.min(minZ, temp.z);
-          maxZ = Math.max(maxZ, temp.z);
+        }
+        
+        // Fit Z to Everything (Casters + Ground) to capture correct depth range
+        for (const c0 of allCorners) {
+            temp.copy(c0).applyMatrix4(sunCam.matrixWorldInverse);
+            minZ = Math.min(minZ, temp.z);
+            maxZ = Math.max(maxZ, temp.z);
         }
 
         sunCam.left = minX - margin;
@@ -621,6 +734,7 @@ function App() {
         sunCam.far = Math.max(sunCam.near + 1, -minZ + margin);
         sunCam.updateProjectionMatrix();
 
+        // 1. Render Shadow Map
         const prevTarget = renderer.getRenderTarget();
         const prevOverride = scene.overrideMaterial;
         for (let i = 0; i < depthIgnore.length; i += 1) {
@@ -629,37 +743,33 @@ function App() {
         }
         scene.overrideMaterial = depthMaterial;
         renderer.setRenderTarget(depthTarget);
+        renderer.setClearColor(0xffffff, 1.0);
         renderer.clear();
         renderer.render(scene, sunCam);
-        renderer.readRenderTargetPixels(depthTarget, 0, 0, rtSize, rtSize, pixels);
+        
+        // Restore scene state
         renderer.setRenderTarget(prevTarget);
         scene.overrideMaterial = prevOverride;
         for (let i = 0; i < depthIgnore.length; i += 1) depthIgnore[i].visible = prevIgnoreVisibility[i];
 
+        // 2. Accumulate
+        analysisMaterial.uniforms.shadowMap.value = depthTarget.texture;
+        analysisMaterial.uniforms.sunViewMatrix.value = sunCam.matrixWorldInverse;
+        analysisMaterial.uniforms.sunProjMatrix.value = sunCam.projectionMatrix;
+        
+        renderer.setRenderTarget(accumTarget);
+        // Do NOT clear here, we accumulate
+        groundMesh.material = analysisMaterial;
+        const prevFrustumCulled = groundMesh.frustumCulled;
+        groundMesh.frustumCulled = false;
+        
+        renderer.render(groundMesh, dummyCam);
+        
+        groundMesh.frustumCulled = prevFrustumCulled;
+        groundMesh.material = sunMaterial; // Restore material
+        renderer.setRenderTarget(prevTarget);
+
         totalSamples += 1;
-
-        for (let i = 0, j = 0; i < vertexCount; i += 1, j += 3) {
-          const worldX = posArr[j] + groundPos.x;
-          const worldY = posArr[j + 1] + groundPos.y;
-          const worldZ = posArr[j + 2] + groundPos.z;
-
-          temp.set(worldX, worldY, worldZ);
-          temp.applyMatrix4(sunCam.matrixWorldInverse);
-          temp.applyMatrix4(sunCam.projectionMatrix);
-
-          const u = temp.x * 0.5 + 0.5;
-          const v = temp.y * 0.5 + 0.5;
-          if (u < 0 || u > 1 || v < 0 || v > 1) continue;
-
-          const px = Math.min(rtSize - 1, Math.max(0, Math.floor(u * (rtSize - 1))));
-          const py = Math.min(rtSize - 1, Math.max(0, Math.floor(v * (rtSize - 1))));
-          const idx = (py * rtSize + px) * 4;
-          const depth = unpackDepth(pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3]);
-          const pointDepth = temp.z * 0.5 + 0.5;
-          if (pointDepth <= depth + 0.0005) {
-            sunScore[i] += 1;
-          }
-        }
 
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
@@ -667,8 +777,66 @@ function App() {
       if (sunAnalysisRunIdRef.current !== runId) canceled = true;
 
       if (!canceled && totalSamples > 0) {
+        // Read back results once
+        const pixels = new Uint8Array(accumSize * accumSize * 4);
+        renderer.readRenderTargetPixels(accumTarget, 0, 0, accumSize, accumSize, pixels);
+
+        const uvAttr = groundGeometry.attributes.uv;
         for (let i = 0; i < vertexCount; i += 1) {
-          sunScore[i] /= totalSamples;
+            const u = uvAttr.getX(i);
+            const v = uvAttr.getY(i);
+            
+            const px = Math.min(accumSize - 1, Math.max(0, Math.floor(u * (accumSize - 1))));
+            const py = Math.min(accumSize - 1, Math.max(0, Math.floor(v * (accumSize - 1))));
+            const idx = (py * accumSize + px) * 4;
+            
+            // Red channel contains the count (1/255 per hit, so value * 255 = hits? No, value IS hits because 1.0/255 maps to 1 in byte)
+            const hits = pixels[idx];
+            sunScore[i] = hits / totalSamples;
+        }
+
+        // Generate Text Texture
+        const canvas = document.createElement('canvas');
+        canvas.width = 4096;
+        canvas.height = 4096;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+             ctx.font = '10px Arial'; 
+             ctx.fillStyle = 'black';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const cellW = canvas.width / gridSegments;
+            const cellH = canvas.height / gridSegments;
+            const rowVertices = gridSegments + 1;
+
+            for (let iy = 0; iy < gridSegments; iy++) {
+                for (let ix = 0; ix < gridSegments; ix++) {
+                    const i1 = iy * rowVertices + ix;
+                    const i2 = iy * rowVertices + (ix + 1);
+                    const i3 = (iy + 1) * rowVertices + ix;
+                    const i4 = (iy + 1) * rowVertices + (ix + 1);
+                    
+                    const s1 = sunScore[i1];
+                    const s2 = sunScore[i2];
+                    const s3 = sunScore[i3];
+                    const s4 = sunScore[i4];
+                    
+                    const avgScore = (s1 + s2 + s3 + s4) / 4;
+                    const hours = avgScore * totalSamples * 0.5;
+                    const text = hours.toFixed(1);
+                    
+                    const cx = (ix + 0.5) * cellW;
+                    const cy = (iy + 0.5) * cellH;
+                    
+                    ctx.fillText(text, cx, cy);
+                }
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            sunMaterial.uniforms.uTextMap.value = texture;
+            sunMaterial.uniforms.uHasText.value = 1.0;
         }
       }
       if (!canceled) {
@@ -677,6 +845,8 @@ function App() {
     } finally {
       if (depthMaterial) depthMaterial.dispose();
       if (depthTarget) depthTarget.dispose();
+      if (accumTarget) accumTarget.dispose();
+      if (analysisMaterial) analysisMaterial.dispose();
       if (sunAnalysisRunIdRef.current !== runId && createdGroup && sceneRef.current) {
         sceneRef.current.remove(createdGroup);
         createdGroup.traverse(obj => {
@@ -691,9 +861,25 @@ function App() {
           }
         });
       }
-      setIsSunAnalysisRunning(false);
+      if (sunAnalysisRunIdRef.current === runId) {
+        setIsSunAnalysisRunning(false);
+      }
     }
   };
+
+  useEffect(() => {
+    if (isSunAnalysisEnabled && !isSunAnalysisRunning) {
+      sunAnalysisRunIdRef.current += 1;
+      void runSunAnalysis();
+    }
+  }, [
+    settings.month, 
+    settings.day, 
+    settings.latitude, 
+    settings.longitude, 
+    settings.timeZone,
+    isSunAnalysisEnabled
+  ]);
 
   useEffect(() => {
     if (!settings.shadows && isSunAnalysisEnabled) {
@@ -803,6 +989,8 @@ function App() {
       measureModeRef,
       clippingPlanes
   );
+
+
 
   // 6. Rhino Loader
   const {
@@ -1299,6 +1487,7 @@ function App() {
                         const next = !isSunAnalysisEnabled;
                         setIsSunAnalysisEnabled(next);
                         if (next) {
+                          sunAnalysisRunIdRef.current += 1;
                           void runSunAnalysis();
                         } else {
                           sunAnalysisRunIdRef.current += 1;
