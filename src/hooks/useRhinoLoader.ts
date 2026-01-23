@@ -309,69 +309,99 @@ export function useRhinoLoader(
             // Fix: Recursive Instance Resolution
             const { instanceDefinitions, instanceDefinitionObjects, instanceReferences } = object.userData;
             if (instanceDefinitions?.length > 0 && instanceReferences?.length > 0 && instanceDefinitionObjects?.length > 0) {
-                const defMap = new Map<string, any>();
-                instanceDefinitions.forEach((d: any) => defMap.set(d.attributes.id, d));
-
-                const refMap = new Map<string, any>();
-                instanceReferences.forEach((r: any) => refMap.set(r.attributes.id, r));
-                
-                const geomMap = new Map<string, THREE.Object3D>();
-                instanceDefinitionObjects.forEach((o: THREE.Object3D) => {
-                    if (o.userData?.attributes?.id) geomMap.set(o.userData.attributes.id, o);
+                // 1. Index everything
+                const geomMap = new Map<string, THREE.Object3D>(); // ID -> Geometry (Mesh/Point)
+                instanceDefinitionObjects.forEach((group: THREE.Object3D[]) => {
+                    group.forEach(obj => {
+                        if (obj.userData?.attributes?.id) {
+                            geomMap.set(obj.userData.attributes.id, obj);
+                        }
+                    });
                 });
 
+                const refMap = new Map<string, any>(); // ID -> InstanceReference (Raw)
+                instanceReferences.forEach((ref: any) => {
+                    refMap.set(ref.attributes.id, ref);
+                });
+
+                const defMap = new Map<string, any>(); // DefID -> InstanceDefinition (Raw)
+                instanceDefinitions.forEach((def: any) => {
+                    defMap.set(def.attributes.id, def);
+                });
+
+                // 2. Identify Loose Objects vs Garbage
+                // First, identify all objects that belong to a definition
                 const containedIds = new Set<string>();
                 instanceDefinitions.forEach((def: any) => {
-                    if (def.attributes?.objectIds) {
+                    if (def.attributes.objectIds) {
                         def.attributes.objectIds.forEach((id: string) => containedIds.add(id));
                     }
                 });
 
-                // Remove flattened instances added by Rhino3dmLoader
-                const toRemove: THREE.Object3D[] = [];
+                const looseObjects: THREE.Object3D[] = [];
                 object.children.forEach(child => {
-                     if (child.type === 'Object3D' && child.children.length > 0) {
-                         toRemove.push(child);
-                     }
+                    // 3DMLoader adds "InstanceReference" wrappers without objectType in userData
+                    // Real objects have userData.objectType populated
+                    // Also exclude objects that are part of a definition (should not be in root)
+                    if (child.userData?.objectType && !containedIds.has(child.userData.attributes?.id)) {
+                        looseObjects.push(child);
+                    }
                 });
-                toRemove.forEach(c => object.remove(c));
 
-                const createInstance = (ref: any, parentLayerIndex: number): THREE.Object3D | null => {
-                    const def = defMap.get(ref.geometry.parentIdefId);
-                    if (!def) return null;
+                // 3. Clear Root
+                object.children = [];
+                looseObjects.forEach(obj => object.add(obj));
 
-                    const wrapper = new THREE.Object3D();
-                    const xform = new THREE.Matrix4().fromArray(ref.geometry.xform.array);
-                    wrapper.applyMatrix4(xform);
-                    wrapper.name = ref.attributes.name || 'Instance';
+                // 4. Recursive Expand Function
+                const expandInstance = (ref: any, parentMatrix: THREE.Matrix4, parentLayerIndex?: number) => {
+                    const defId = ref.geometry.parentIdefId;
+                    const def = defMap.get(defId);
+                    if (!def) return;
+
+                    // Calculate current matrix
+                    const xform = new THREE.Matrix4();
+                    const arr = ref.geometry.xform.array;
+                    // Rhino is Row-Major, Three.js set() takes Row-Major
+                    xform.set(
+                        arr[0], arr[1], arr[2], arr[3],
+                        arr[4], arr[5], arr[6], arr[7],
+                        arr[8], arr[9], arr[10], arr[11],
+                        arr[12], arr[13], arr[14], arr[15]
+                    );
                     
-                    const layerIndex = ref.attributes.layerIndex;
-                    wrapper.userData.attributes = { ...ref.attributes, layerIndex };
-                    wrapper.userData.isInstance = true;
+                    const currentMatrix = parentMatrix.clone().multiply(xform);
+                    const layerIndex = ref.attributes.layerIndex ?? parentLayerIndex;
 
                     if (def.attributes.objectIds) {
                         def.attributes.objectIds.forEach((id: string) => {
-                             const geom = geomMap.get(id);
-                             if (geom) {
-                                 const clone = geom.clone();
-                                 // Preserve original layer index for geometry
-                                 wrapper.add(clone);
-                             }
+                            // Case A: Child is Geometry
+                            const geom = geomMap.get(id);
+                            if (geom) {
+                                const clone = geom.clone();
+                                clone.matrix.copy(currentMatrix);
+                                clone.matrixAutoUpdate = false;
+                                // Preserve attributes, override layer if needed (or keep original?)
+                                // Usually geometry keeps its own layer, but instance controls visibility?
+                                // For now, keep geometry's own attributes.
+                                // If geometry has no layer, maybe inherit?
+                                // Rhino logic: Attributes on geometry inside block persist.
+                                object.add(clone);
+                            }
 
-                             const childRef = refMap.get(id);
-                             if (childRef) {
-                                 const child = createInstance(childRef, layerIndex);
-                                 if (child) wrapper.add(child);
-                             }
+                            // Case B: Child is another Reference (Nested Block)
+                            const childRef = refMap.get(id);
+                            if (childRef) {
+                                expandInstance(childRef, currentMatrix, layerIndex);
+                            }
                         });
                     }
-                    return wrapper;
                 };
 
+                // 5. Find Top-Level References and Expand
+                // Top-level references are those NOT contained in any definition's objectIds
                 instanceReferences.forEach((ref: any) => {
                     if (!containedIds.has(ref.attributes.id)) {
-                        const instance = createInstance(ref, ref.attributes.layerIndex);
-                        if (instance) object.add(instance);
+                        expandInstance(ref, new THREE.Matrix4());
                     }
                 });
             }
