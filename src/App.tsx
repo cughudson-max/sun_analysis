@@ -6,7 +6,6 @@ import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popo
 
 import tzLookupRaw from 'tz-lookup/tz.js?raw';
 
-import layerIcon from './icon/layer.svg';
 import eyeIcon from './icon/eye.svg';
 import hideIcon from './icon/hide.svg';
 import lockIcon from './icon/lock.svg';
@@ -263,8 +262,8 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
              if (hasChildren) setIsExpanded(!isExpanded);
           }}
           style={{
-            width: hasChildren ? 14 : 0,
-            height: hasChildren ? 14 : 0,
+            width: hasChildren ? 16 : 0,
+            height: hasChildren ? 16 : 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -275,8 +274,8 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
             <img 
               src={angleIcon} 
               style={{ 
-                width: 14, 
-                height: 14,
+                width: 16, 
+                height: 16,
                 transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
                 transition: 'transform 0.1s ease-in-out'
               }} 
@@ -285,7 +284,6 @@ function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
           )}
         </div>
 
-        <img src={layerIcon} style={{ width: 14, height: 14 }} alt="Layer" />
         <Text size={200} style={{ marginLeft: 4, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {layer.name}
         </Text>
