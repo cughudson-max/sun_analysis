@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { zoomToBox } from '../utils/camera-utils';
 import type { DisplayMode } from './useSettings';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {HD3DMLoader} from '../utils/HD3DMLoader.js'
 
 const UNIT_NAMES: Record<number, string> = {
     0: 'None',
@@ -26,7 +27,6 @@ export function useRhinoLoader(
     dirLightRef: React.MutableRefObject<THREE.DirectionalLight | null>,
     updateGround: () => void,
     updateHighlights: () => void,
-    clearMeasurements: () => void,
     mergeGeometry: boolean,
     loadMultiFile: boolean,
     displayMode: DisplayMode,
@@ -299,8 +299,7 @@ export function useRhinoLoader(
         setLoadingProgress(recomputeOverallProgress());
 
         if (!rhinoLoaderCtorRef.current) {
-            const mod = await import('three/examples/jsm/loaders/3DMLoader.js');
-            rhinoLoaderCtorRef.current = mod.Rhino3dmLoader;
+            rhinoLoaderCtorRef.current = HD3DMLoader;
         }
         const loader = new rhinoLoaderCtorRef.current();
         //loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
@@ -646,7 +645,6 @@ export function useRhinoLoader(
         const filesToLoad = willAppend ? files : files.slice(0, 1);
 
         if (!willAppend) {
-            clearMeasurements();
             setModelUnit('');
             unitSetRef.current = false;
         }

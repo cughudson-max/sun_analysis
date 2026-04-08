@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     projection: 'perspective',
     displayMode: 'shadeWithEdge',
     shadows: false,
-    shadowQuality: 4096,
+    shadowQuality: 8196,
     shadowBias: -0.0001,
     shadowRadius: 1,
     ambientIntensity: 1.0,

@@ -1,9 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import measureIcon from '../../icon/measure.svg';
-import measureActiveIcon from '../../icon/measure_active.svg';
-import undoIcon from '../../icon/undo.svg';
-import redoIcon from '../../icon/redo.svg';
-import deleteIcon from '../../icon/delete.svg';
 import parallelIcon from '../../icon/Parallel.svg';
 import perspectiveIcon from '../../icon/Perspective.svg';
 import shadeIcon from '../../icon/shade.svg';
@@ -15,13 +10,8 @@ import sectionActiveIcon from '../../icon/section_active.svg';
 import type { DisplayMode } from '../../hooks/useSettings';
 
 interface ToolbarProps {
-    isMeasureActive: boolean;
     isOrtho: boolean;
     displayMode: DisplayMode;
-    onMeasureClick: () => void;
-    onUndo: () => void;
-    onRedo: () => void;
-    onClear: () => void;
     onToggleProjection: () => void;
     onChangeDisplayMode: (mode: DisplayMode) => void;
     isClippingActive: boolean;
@@ -31,13 +21,8 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
-    isMeasureActive,
     isOrtho,
     displayMode,
-    onMeasureClick,
-    onUndo,
-    onRedo,
-    onClear,
     onToggleProjection,
     onChangeDisplayMode,
     isClippingActive,
@@ -133,30 +118,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   </div>
               )}
           </div>
-          <button 
-              className={`toolbar-btn ${isMeasureActive ? 'active' : ''}`}
-              onClick={onMeasureClick}
-              title="Measure Distance (M)"
-          >
-              <img src={isMeasureActive ? measureActiveIcon : measureIcon} alt="Measure" width={18} height={18} />
-          </button>
-
-          <button
-              className="toolbar-btn"
-              onClick={onUndo}
-              title="Undo Measurement"
-          >
-              <img src={undoIcon} alt="Undo" width={18} height={18} />
-          </button>
-
-          <button
-              className="toolbar-btn"
-              onClick={onRedo}
-              title="Redo Measurement"
-          >
-              <img src={redoIcon} alt="Redo" width={18} height={18} />
-          </button>
-
           <div className="toolbar-display-mode" ref={clippingModeRef}>
               <button
                   className={`toolbar-btn ${isClippingActive ? 'active' : ''}`}
@@ -219,7 +180,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               )}
           </div>
 
-          <button 
+          <button
               className={`toolbar-btn ${isOrtho ? 'active' : ''}`}
               onClick={onToggleProjection}
               title="Toggle Projection (Perspective/Parallel)"
@@ -230,14 +191,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   width={18}
                   height={18}
               />
-          </button>
-
-          <button
-              className="toolbar-btn"
-              onClick={onClear}
-              title="Clear Measurements"
-          >
-              <img src={deleteIcon} alt="Clear" width={18} height={18} />
           </button>
       </div>
     );

@@ -7,10 +7,6 @@ import { Text, Slider, Switch, Button, ColorPicker, ColorSlider, ColorArea, Popo
 import tzLookupRaw from 'tz-lookup/tz.js?raw';
 
 import eyeIcon from './icon/eye.svg';
-import hideIcon from './icon/hide.svg';
-import lockIcon from './icon/lock.svg';
-import unlockIcon from './icon/unlock.svg';
-import angleIcon from './icon/angle.svg';
 import solidAngleIcon from './icon/SolidAngle.svg';
 
 import { useSettings } from './hooks/useSettings';
@@ -18,7 +14,6 @@ import { useThreeScene } from './hooks/useThreeScene';
 import { useLights } from './hooks/useLights';
 import { useControls } from './hooks/useControls';
 import { useSelection } from './hooks/useSelection';
-import { useMeasurement } from './hooks/useMeasurement';
 import { useRhinoLoader } from './hooks/useRhinoLoader';
 import { useClipping } from './hooks/useClipping';
 import { gradients, getGradientCss } from './utils/gradients';
@@ -241,99 +236,6 @@ function hsvToHex(color: Hsv): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-function LayerNode({ layer, depth, onToggleVisibility, onToggleLock }: any) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const hasChildren = layer.children && layer.children.length > 0;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2,
-          padding: '0 0 0 4px',
-          paddingLeft: depth === 0 ? 4 : 16 + depth * 16
-        }}
-      >
-        <div
-          onClick={(e) => {
-             e.stopPropagation();
-             if (hasChildren) setIsExpanded(!isExpanded);
-          }}
-          style={{
-            width: hasChildren ? 16 : 0,
-            height: hasChildren ? 16 : 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: hasChildren ? 'pointer' : 'default'
-          }}
-        >
-          {hasChildren && (
-            <img 
-              src={angleIcon} 
-              style={{ 
-                width: 16, 
-                height: 16,
-                transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                transition: 'transform 0.1s ease-in-out'
-              }} 
-              alt={isExpanded ? "Collapse" : "Expand"} 
-            />
-          )}
-        </div>
-
-        <Text size={200} style={{ marginLeft: 4, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {layer.name}
-        </Text>
-        
-        <Button
-          appearance="transparent"
-          icon={<img src={layer.isVisible ? eyeIcon : hideIcon} style={{ width: 14, height: 14 }} alt={layer.isVisible ? "Visible" : "Hidden"} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleVisibility(layer.id, !layer.isVisible);
-          }}
-          title={layer.isVisible ? 'Hide Layer' : 'Show Layer'}
-          size="small"
-          style={{ minWidth: 24, padding: 0 }}
-        />
-        <Button
-          appearance="transparent"
-          icon={<img src={layer.locked ? lockIcon : unlockIcon} style={{ width: 14, height: 14 }} alt={layer.locked ? "Locked" : "Unlocked"} />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleLock(layer.id, !layer.locked);
-          }}
-          title={layer.locked ? 'Unlock Layer' : 'Lock Layer'}
-          size="small"
-          style={{ minWidth: 24, padding: 0 }}
-        />
-      </div>
-      {hasChildren && isExpanded && (
-        <LayerTree layers={layer.children} depth={depth + 1} onToggleVisibility={onToggleVisibility} onToggleLock={onToggleLock} />
-      )}
-    </div>
-  );
-}
-
-function LayerTree({ layers, depth = 0, onToggleVisibility, onToggleLock }: any) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {layers.map((layer: any) => (
-        <LayerNode
-          key={layer.id || layer.index}
-          layer={layer}
-          depth={depth}
-          onToggleVisibility={onToggleVisibility}
-          onToggleLock={onToggleLock}
-        />
-      ))}
-    </div>
-  );
-}
-
 function SunAnalysisLegend({ maxHours, gradientName, visible }: { maxHours: number; gradientName: string; visible: boolean }) {
   if (!visible) return null;
   const stops = gradients[gradientName] || gradients['turbo'];
@@ -376,6 +278,8 @@ function App() {
   const sunAnalysisRunIdRef = useRef(0);
   const stopSignalRef = useRef(false);
   const [selectedGradient, setSelectedGradient] = useState('turbo');
+  const [analysisPrecision, setAnalysisPrecision] = useState<'low' | 'medium' | 'high'>('medium');
+  const [sunAnalysisInterval, setSunAnalysisInterval] = useState<number>(30);
 
   const generateGradientTexture = (name: string) => {
     const stops = gradients[name] || gradients['turbo'];
@@ -510,7 +414,7 @@ function App() {
       clearSunAnalysis(true);
 
       const groundMaxDim = Math.max(groundW, groundH);
-      const targetCellSize = groundMaxDim / 50;
+      const targetCellSize = groundMaxDim / 60;
       const segmentsX = Math.max(1, Math.round(groundW / targetCellSize));
       const segmentsY = Math.max(1, Math.round(groundH / targetCellSize));
       
@@ -616,7 +520,12 @@ function App() {
       createdGroup = group;
       sunAnalysisGroupRef.current = group;
 
-      const rtSize = 2048;
+      const precisionMap = {
+        low: { rtSize: 1024, accumSize: 512 },
+        medium: { rtSize: 2048, accumSize: 2048 },
+        high: { rtSize: 4096, accumSize: 4096 }
+      };
+      const { rtSize, accumSize } = precisionMap[analysisPrecision];
       depthTarget = new THREE.WebGLRenderTarget(rtSize, rtSize, {
         minFilter: THREE.NearestFilter,
         magFilter: THREE.NearestFilter,
@@ -634,7 +543,6 @@ function App() {
       depthMaterial.side = THREE.DoubleSide;
 
       // GPU Accumulation Setup
-      const accumSize = 1024; // Increased resolution for better sampling
       accumTarget = new THREE.WebGLRenderTarget(accumSize, accumSize, {
         minFilter: THREE.NearestFilter,
         magFilter: THREE.NearestFilter,
@@ -776,7 +684,7 @@ function App() {
       // Reset stop signal
       stopSignalRef.current = false;
 
-      for (let h = 0; h < 24; h += 0.5) {
+      for (let h = 0; h < 24; h += sunAnalysisInterval / 60) {
         if (stopSignalRef.current) break;
 
         if (sunAnalysisRunIdRef.current !== runId) {
@@ -1087,21 +995,7 @@ function App() {
   // 3. Lights & Environment
   const { dirLightRef, updateGround, updateShadowFrustum } = useLights(sceneRef, settings);
 
-  // 4. Measurements
-  const {
-    isMeasureActive,
-    measureModeRef,
-    enterMeasureMode,
-    exitMeasureMode,
-    undoMeasurement,
-    redoMeasurement,
-    clearMeasurements,
-    measurementGroupRef,
-    highlightPointRef,
-    measurementTempMarkerRef
-  } = useMeasurement(sceneRef, cameraRef, rendererRef);
-
-  // 5. Selection
+  // 4. Selection
   const selectionBoxRef = useRef<any>(null);
 
   const controlsRef = useControls(
@@ -1122,6 +1016,7 @@ function App() {
     controlsRef
   );
 
+  // Wind Simulation
   const {
       selectionBoxDivRef,
       selectedObjectsRef,
@@ -1133,8 +1028,7 @@ function App() {
       controlsRef,
       orthoFrustumHeightRef,
       selectionBoxRef,
-      measureModeRef,
-      clippingPlanes
+      clippingPlanes,
   );
 
 
@@ -1146,8 +1040,6 @@ function App() {
       handleFileChange,
       load3dmFile,
       layers,
-      setLayerVisibility,
-      setLayerLocked,
       modelUnit
   } = useRhinoLoader(
       sceneRef,
@@ -1157,7 +1049,6 @@ function App() {
       dirLightRef,
       updateGround,
       updateHighlights,
-      clearMeasurements,
       settings.mergeGeometry,
       settings.loadMultiFile,
       displayMode,
@@ -1180,51 +1071,12 @@ function App() {
     }
   }, [layers, updateClippingMaterials, rebuildStencil, isClippingActive]);
 
-  // 7. Animation Loop
+  // 5. Animation Loop
   useEffect(() => {
       const animate = () => {
           requestAnimationFrame(animate);
-          
+
           if (rendererRef.current && sceneRef.current && cameraRef.current) {
-               // Adaptive Scaling Logic
-               const currentCamera = cameraRef.current;
-               if (measurementGroupRef.current) {
-                  let scaleFactor = 1;
-                  const targetPos = controlsRef.current?.target || new THREE.Vector3();
-                  
-                  if (currentCamera instanceof THREE.PerspectiveCamera) {
-                      const dist = currentCamera.position.distanceTo(targetPos);
-                      scaleFactor = dist * 0.05;
-                  } else if (currentCamera instanceof THREE.OrthographicCamera) {
-                      scaleFactor = (currentCamera.top - currentCamera.bottom) * 0.05;
-                  }
-                  
-                  if (highlightPointRef.current) {
-                     highlightPointRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                  }
-                  if (measurementTempMarkerRef.current) {
-                      measurementTempMarkerRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                  }
-                  
-                  measurementGroupRef.current.children.forEach(measurement => {
-                      if (measurement instanceof THREE.Group) {
-                          measurement.children.forEach(child => {
-                              if (child.name === 'MeasurementPoint') {
-                                  child.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                              } else if (child.name === 'MeasurementLabel') {
-                                  if (child instanceof THREE.Sprite && child.material.map && child.material.map.image) {
-                                       const img = child.material.map.image;
-                                       const aspect = img.width / img.height;
-                                       const h = scaleFactor * 0.233;
-                                       const w = h * aspect;
-                                       child.scale.set(w, h, 1);
-                                  }
-                              }
-                          });
-                      }
-                  });
-               }
-               
                rendererRef.current.render(sceneRef.current, cameraRef.current);
           }
       };
@@ -1301,13 +1153,8 @@ function App() {
         <ViewCube controlsRef={controlsRef} cameraRef={cameraRef} />
 
         <Toolbar
-          isMeasureActive={isMeasureActive}
           isOrtho={settings.projection === 'orthographic'}
           displayMode={displayMode}
-          onMeasureClick={isMeasureActive ? exitMeasureMode : enterMeasureMode}
-          onUndo={undoMeasurement}
-          onRedo={redoMeasurement}
-          onClear={clearMeasurements}
           onToggleProjection={() =>
             updateSettings({
               projection:
@@ -1660,6 +1507,47 @@ function App() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
                   <Text size={200} style={{ minWidth: 64 }}>
+                    分析精度
+                  </Text>
+                  <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+                    <Dropdown
+                      disabled={!settings.shadows}
+                      selectedOptions={[analysisPrecision]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setAnalysisPrecision(data.optionValue as 'low' | 'medium' | 'high');
+                      }}
+                      value={analysisPrecision === 'low' ? '低精度' : analysisPrecision === 'medium' ? '标准精度' : '精细精度'}
+                      style={{ width: '100%', height: 28, minHeight: 28 }}
+                    >
+                      <Option value="low">低精度</Option>
+                      <Option value="medium">标准精度</Option>
+                      <Option value="high">精细精度</Option>
+                    </Dropdown>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
+                    采样间隔
+                  </Text>
+                  <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
+                    <Dropdown
+                      disabled={!settings.shadows}
+                      selectedOptions={[String(sunAnalysisInterval)]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSunAnalysisInterval(Number(data.optionValue));
+                      }}
+                      value={`${sunAnalysisInterval}分钟`}
+                      style={{ width: '100%', height: 28, minHeight: 28 }}
+                    >
+                      <Option value="5">5分钟</Option>
+                      <Option value="10">10分钟</Option>
+                      <Option value="30">30分钟</Option>
+                      <Option value="60">60分钟</Option>
+                    </Dropdown>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 28, paddingLeft: 8 }}>
+                  <Text size={200} style={{ minWidth: 64 }}>
                     日照分析
                   </Text>
                   <div className="settings-control" style={{ flex: 1, paddingRight: 4 }}>
@@ -1690,30 +1578,7 @@ function App() {
               </div>
             </AccordionPanel>
           </AccordionItem>
-
-
         </Accordion>
-
-        <div style={{ margin: '6px 0', height: 1, backgroundColor: '#e0e0e0' }} />
-
-        <div className="layers-list" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #d1d1d1', backgroundColor: '#fff' }}>
-          <div style={{ display: 'flex', alignItems: 'center', height: 24, backgroundColor: '#f5f5f5', borderBottom: '1px solid #e0e0e0', flexShrink: 0 }}>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', borderRight: '1px solid #e0e0e0' }}>
-              <Text size={200}>图层名称</Text>
-            </div>
-            <div style={{ width: 26, height: '100%', borderRight: '1px solid #e0e0e0', boxSizing: 'border-box' }} />
-            <div style={{ width: 26, height: '100%' }} />
-          </div>
-          
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <LayerTree layers={layers} onToggleVisibility={setLayerVisibility} onToggleLock={setLayerLocked} />
-            {layers.length === 0 && (
-              <Text size={100} style={{ color: 'rgba(0,0,0,0.45)', marginTop: 8, alignSelf: 'center',fontSize:12 }}>
-                加载模型以查看图层
-              </Text>
-            )}
-          </div>
-        </div>
 
         {configLoaded && (!settings.files3dm || settings.files3dm.length === 0) && (
             <div style={{ marginTop: 4 }}>

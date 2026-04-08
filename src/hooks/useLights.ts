@@ -183,7 +183,7 @@ export function useLights(
         if (sunDir.lengthSq() < 1e-8) sunDir.set(1, -1, 1);
         sunDir.normalize();
 
-        const distance = Math.max(1000, maxDim * 3);
+        const distance = Math.max(10000, maxDim * 6);
 
         const lightPos = center.clone().addScaledVector(sunDir, distance);
         dirLight.target.position.copy(center);

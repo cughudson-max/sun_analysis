@@ -12,8 +12,8 @@ export function useSelection(
     controlsRef: React.MutableRefObject<OrbitControls | null>,
     orthoFrustumHeightRef: React.MutableRefObject<number>,
     selectionBoxRef: React.MutableRefObject<SelectionBox | null>,
-    measureModeRef: React.MutableRefObject<boolean>,
-    clippingPlanes: THREE.Plane[] = []
+    clippingPlanes: THREE.Plane[] = [],
+    isPickingPositionRef?: React.MutableRefObject<boolean>
 ) {
     const selectionBoxDivRef = useRef<HTMLDivElement>(null);
     const startMouseRef = useRef<{x: number, y: number, time: number}>({ x: 0, y: 0, time: 0 });
@@ -146,6 +146,8 @@ export function useSelection(
         let isSelecting = false;
     
         const onPointerDown = (event: PointerEvent) => {
+          if (isPickingPositionRef?.current) return;
+
           if (event.button === 1) {
               const now = Date.now();
               if (now - lastMiddleClickTime.current < 300) {
@@ -248,9 +250,9 @@ export function useSelection(
     
         const onClick = (event: MouseEvent) => {
           if (event.ctrlKey) return; 
-          
-          // Skip if in measure mode
-          if (measureModeRef.current) return;
+
+          // Skip if picking wind position
+          if (isPickingPositionRef?.current) return;
 
           const now = Date.now();
           if (now - startMouseRef.current.time > 300) {
