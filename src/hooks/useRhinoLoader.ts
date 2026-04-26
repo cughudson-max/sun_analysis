@@ -5,19 +5,7 @@ import type { DisplayMode } from './useSettings';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {HD3DMLoader} from '../utils/HD3DMLoader.js'
 
-const UNIT_NAMES: Record<number, string> = {
-    0: 'None',
-    1: 'Angstroms',
-    2: 'Millimeters',
-    3: 'Centimeters',
-    4: 'Meters',
-    5: 'Kilometers',
-    6: 'Microinches',
-    7: 'Mils',
-    8: 'Inches',
-    9: 'Feet',
-    10: 'Miles'
-};
+
 
 export function useRhinoLoader(
     sceneRef: React.MutableRefObject<THREE.Scene | null>,
@@ -36,9 +24,8 @@ export function useRhinoLoader(
     const [isLoading, setIsLoading] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(0);
     const [modelUnit, setModelUnit] = useState<string>('');
+    const [currentFileName, setCurrentFileName] = useState<string>('');
     const unitSetRef = useRef(false);
-    const [layers, setLayers] = useState<{ index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[]>([]);
-    const layerStateRef = useRef<Record<string, { isVisible: boolean; locked: boolean }>>({});
     const rhinoLoaderCtorRef = useRef<any>(null);
     const pendingLoadsRef = useRef(0);
     const loadProgressRef = useRef<Map<number, number>>(new Map());
@@ -49,104 +36,6 @@ export function useRhinoLoader(
         if (values.length === 0) return 0;
         const sum = values.reduce((acc, v) => acc + v, 0);
         return Math.round(sum / values.length);
-    };
-
-    // Recursive helper to build tree
-    const buildLayerTree = (layers: any[]) => {
-        const layerMap = new Map<string, any>();
-        const rootLayers: any[] = [];
-
-        // First pass: create nodes and map them
-        layers.forEach(layer => {
-            const layerIndex = layer.index !== undefined ? layer.index : layer.layerIndex;
-            const isVisible = layer.isVisible !== false && layer.visible !== false;
-            const name = layer.name || `Layer ${layerIndex}`;
-            const id = layer.id;
-            const parentId = layer.parentLayerId;
-            
-            // Initialize state for flat lookup
-            const key = `layer_${layerIndex}`;
-            if (!layerStateRef.current[key]) {
-                layerStateRef.current[key] = { isVisible, locked: false };
-            }
-
-            layerMap.set(id, {
-                index: layerIndex,
-                name,
-                isVisible,
-                locked: false,
-                id,
-                parentLayerId: parentId,
-                children: []
-            });
-        });
-
-        // Second pass: build tree structure
-        layerMap.forEach(node => {
-            const parentId = node.parentLayerId;
-            if (parentId && parentId !== '00000000-0000-0000-0000-000000000000') {
-                const parent = layerMap.get(parentId);
-                if (parent) {
-                    parent.children.push(node);
-                } else {
-                    rootLayers.push(node); // Fallback if parent not found
-                }
-            } else {
-                rootLayers.push(node);
-            }
-        });
-
-        return rootLayers;
-    };
-
-    const updateLayerStateRecursive = (layerId: string, newState: Partial<{ isVisible: boolean; locked: boolean }>, allLayers: any[]) => {
-        const affectedIndices = new Set<number>();
-        
-        // 1. Update Tree and collect indices
-        const updateNode = (nodes: any[], shouldUpdate: boolean): any[] => {
-            return nodes.map(node => {
-                const isTarget = node.id === layerId;
-                const willUpdate = shouldUpdate || isTarget;
-                
-                if (willUpdate) {
-                    if (typeof node.index === 'number' && !Number.isNaN(node.index)) {
-                        affectedIndices.add(node.index);
-                        const key = `layer_${node.index}`;
-                        const prev = layerStateRef.current[key] || { isVisible: true, locked: false };
-                        layerStateRef.current[key] = { ...prev, ...newState };
-                    }
-                    
-                    const updatedNode = { ...node, ...newState };
-                    if (node.children && node.children.length > 0) {
-                        updatedNode.children = updateNode(node.children, true);
-                    }
-                    return updatedNode;
-                }
-                
-                // Not target, not descendant of target (yet)
-                if (node.children && node.children.length > 0) {
-                    return { ...node, children: updateNode(node.children, false) };
-                }
-                
-                return node;
-            });
-        };
-        
-        const newLayers = updateNode(allLayers, false);
-        
-        // 2. Update Scene (Single Traversal)
-        if (sceneRef.current && affectedIndices.size > 0) {
-            sceneRef.current.traverse(child => {
-                if (child.userData?.attributes?.layerIndex !== undefined) {
-                    if (affectedIndices.has(child.userData.attributes.layerIndex)) {
-                        if ('isVisible' in newState) child.visible = newState.isVisible!;
-                        if ('locked' in newState) child.userData.isLocked = newState.locked!;
-                    }
-                }
-            });
-        }
-        
-        return newLayers;
     };
 
     // Suppress 3DMLoader warnings globally while this hook is active
@@ -303,7 +192,7 @@ export function useRhinoLoader(
         }
         const loader = new rhinoLoaderCtorRef.current();
         //loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/');
-
+        //loader.setLibraryPath( 'https://cdn.jsdelivr.net/npm/rhino3dm@8.0.1');
         loader.load(url, (object: THREE.Object3D) => {
             // Fix: Recursive Instance Resolution
             const { instanceDefinitions, instanceDefinitionObjects, instanceReferences } = object.userData;
@@ -417,44 +306,8 @@ export function useRhinoLoader(
                 setLoadingProgress(overall);
             }
 
-            if (!unitSetRef.current) {
-                // Try to get settings from userData (standard 3DMLoader) or doc (custom)
-                const settings = object.userData.settings;
-                const doc = object.userData.doc;
+            // 取消了对单位的解析
 
-                if (settings || doc) {
-                    try {
-                        let unitValue = 0;
-
-                        // 1. Try to get unit from settings object (which might be a plain object or rhino object)
-                        if (settings) {
-                            if (typeof settings.modelUnitSystem === 'function') {
-                                unitValue = settings.modelUnitSystem();
-                            } else if (settings.modelUnitSystem !== undefined) {
-                                const val = settings.modelUnitSystem;
-                                unitValue = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
-                            }
-                        }
-                        
-                        // 2. Fallback to doc if unit not found yet and doc exists
-                        if (unitValue === 0 && doc) {
-                             if (typeof doc.modelUnitSystem === 'function') {
-                                unitValue = doc.modelUnitSystem();
-                             }
-                             // Note: doc.settings() might have failed earlier if we are here, but we can try
-                        }
-
-                        const unitName = UNIT_NAMES[unitValue] || 'Unknown';
-
-                        setModelUnit(unitName);
-                        unitSetRef.current = true;
-                    } catch (e) {
-                        console.warn('Failed to extract model unit', e);
-                    }
-                } else {
-                    console.warn('No settings or doc found in userData');
-                }
-            }
             
             object.traverse((child: THREE.Object3D) => {
                 if (child instanceof THREE.Mesh) {
@@ -552,56 +405,7 @@ export function useRhinoLoader(
                 delete object.userData.attributes.layerIndex;
             }
 
-            const builtinLayers = object.userData.layers;
-            if (builtinLayers && Array.isArray(builtinLayers)) {
-                // Clear existing state before building new one
-                layerStateRef.current = {};
-                const tree = buildLayerTree(builtinLayers);
-                setLayers(tree);
-
-                object.traverse((child: THREE.Object3D) => {
-                    if (child.userData?.attributes?.layerIndex !== undefined) {
-                        const layerIndex = child.userData.attributes.layerIndex;
-                        const key = `layer_${layerIndex}`;
-                        const state = layerStateRef.current[key];
-                        if (state) {
-                            child.visible = state.isVisible;
-                            child.userData.isLocked = state.locked;
-                        } else {
-                            child.visible = true;
-                            child.userData.isLocked = false;
-                        }
-                    }
-                });
-            } else {
-                const foundLayers = new Set<number>();
-                object.traverse((child: THREE.Object3D) => {
-                    if (child.userData?.attributes?.layerIndex !== undefined) {
-                        foundLayers.add(child.userData.attributes.layerIndex);
-                    }
-                });
-
-                if (foundLayers.size > 0) {
-                    const nextState: Record<string, { isVisible: boolean; locked: boolean }> = {};
-                    const nextLayers: { index: number; name: string; isVisible: boolean; locked: boolean; parentLayerId: string; id: string; children?: any[] }[] = [];
-                    foundLayers.forEach(index => {
-                        const key = `layer_${index}`;
-                        const name = `Layer ${index}`;
-                        nextState[key] = { isVisible: true, locked: false };
-                        nextLayers.push({ 
-                            index, 
-                            name, 
-                            isVisible: true, 
-                            locked: false,
-                            id: `layer_id_${index}`,
-                            parentLayerId: '00000000-0000-0000-0000-000000000000'
-                        });
-                    });
-                    layerStateRef.current = nextState;
-                    setLayers(nextLayers);
-                }
-            }
-
+            // 取消了对图层的解析
             if (dirLightRef.current?.castShadow) {
                 updateGround();
                 updateShadowFrustum();
@@ -671,17 +475,11 @@ export function useRhinoLoader(
 
         filesToLoad.forEach(file => {
             const url = URL.createObjectURL(file);
+            if (!loadMultiFile) {
+                setCurrentFileName(file.name.replace(/\.[^/.]+$/, ''));
+            }
             void load3dmFile(url);
         });
-    };
-
-
-    const setLayerVisibility = (id: string, isVisible: boolean) => {
-        setLayers(prev => updateLayerStateRecursive(id, { isVisible }, prev));
-    };
-
-    const setLayerLocked = (id: string, locked: boolean) => {
-        setLayers(prev => updateLayerStateRecursive(id, { locked }, prev));
     };
 
     return {
@@ -689,9 +487,7 @@ export function useRhinoLoader(
         loadingProgress,
         handleFileChange,
         load3dmFile,
-        layers,
-        setLayerVisibility,
-        setLayerLocked,
-        modelUnit
+        modelUnit,
+        currentFileName
     };
 }

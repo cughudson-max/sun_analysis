@@ -4,9 +4,30 @@ export function getGradientCss(stops: ColorStop[], angle = '90deg'): string {
   const stopsStr = stops.map(s => `${s.color} ${s.offset * 100}%`).join(', ');
   return `linear-gradient(${angle}, ${stopsStr})`;
 }
-
+export const viewport_gradients:Record<string,ColorStop[]> = {
+  sketchup_blue:[
+    { offset: 0.0, color: '#59d0ff' },
+    { offset: 1.0, color: '#ffffff' }
+  ],
+  white: [
+    { offset: 0.0, color: '#FFFFFF' },
+    { offset: 1.0, color: '#FFFFFF' }
+  ],
+  black: [
+    { offset: 0.0, color: '#000000' },
+    { offset: 1.0, color: '#000000' }
+  ],
+  gray: [
+    { offset: 0.0, color: '#CCCCCC' },
+    { offset: 1.0, color: '#CCCCCC' }
+  ],
+  sketchup:[
+    { offset: 0.0, color: '#e0e0e0' },
+    { offset: 1.0, color: '#ffffff' }
+  ]
+};
 export const gradients: Record<string, ColorStop[]> = {
-  gnuplot2: [
+  afmhot: [
     { offset: 0.0, color: '#000000' },
     { offset: 0.2, color: '#000080' },
     { offset: 0.4, color: '#008080' },

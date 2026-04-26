@@ -25,6 +25,8 @@ export interface ViewerSettings {
     files3dm?: string[];
 }
 
+const STORAGE_KEY = '3dm-viewer-settings';
+
 const DEFAULT_SETTINGS: ViewerSettings = {
     bgTop: '#e0e0e0',
     bgBottom: '#ffffff',
@@ -44,8 +46,43 @@ const DEFAULT_SETTINGS: ViewerSettings = {
     files3dm: []
 };
 
+const PERSIST_KEYS = ['bgTop', 'bgBottom', 'latitude', 'longitude'] as const;
+
+function loadPersistedSettings(): Partial<ViewerSettings> {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            return PERSIST_KEYS.reduce((acc, key) => {
+                if (parsed[key] !== undefined) {
+                    acc[key] = parsed[key];
+                }
+                return acc;
+            }, {} as Partial<ViewerSettings>);
+        }
+    } catch (e) {
+        console.error('Failed to load viewer settings from localStorage', e);
+    }
+    return {};
+}
+
+function savePersistedSettings(settings: ViewerSettings): void {
+    try {
+        const toSave = PERSIST_KEYS.reduce((acc, key) => {
+            acc[key] = settings[key];
+            return acc;
+        }, {} as Record<string, unknown>);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (e) {
+        console.error('Failed to save viewer settings to localStorage', e);
+    }
+}
+
 export function useSettings() {
-    const [settings, setSettings] = useState<ViewerSettings>(DEFAULT_SETTINGS);
+    const [settings, setSettings] = useState<ViewerSettings>({
+        ...DEFAULT_SETTINGS,
+        ...loadPersistedSettings()
+    });
     const [configLoaded, setConfigLoaded] = useState(false);
 
     useEffect(() => {
@@ -54,15 +91,13 @@ export function useSettings() {
                 const response = await fetch(`${import.meta.env.BASE_URL}config.json`);
                 if (response.ok) {
                     const config = await response.json();
-                    
+
                     if (config) {
                         setSettings(prev => ({
                             ...prev,
                             brightness: config.brightness ?? prev.brightness,
                             ambientIntensity: config.ambientIntensity ?? prev.ambientIntensity,
                             ambientColor: config.ambientColor ?? prev.ambientColor,
-                            bgTop: config.topColor ?? prev.bgTop,
-                            bgBottom: config.bottomColor ?? prev.bgBottom,
                             shadows: config.EnabledShadow ?? prev.shadows,
                             mergeGeometry: config.MergeGeometry ?? prev.mergeGeometry,
                             loadMultiFile: config.LoadMultiFile ?? prev.loadMultiFile,
@@ -79,6 +114,12 @@ export function useSettings() {
 
         loadConfig();
     }, []);
+
+    useEffect(() => {
+        if (configLoaded) {
+            savePersistedSettings(settings);
+        }
+    }, [settings, configLoaded]);
 
     const updateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
         setSettings(prev => {

@@ -1,231 +1,102 @@
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 18%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 18%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 18%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 64%;
+    --radius: 0.625rem;
+    --chart-1: 0 0% 93%;
+    --chart-2: 0 0% 45%;
+    --chart-3: 0 0% 32%;
+    --chart-4: 0 0% 25%;
+    --chart-5: 0 0% 18%;
+    --sidebar: 0 0% 98%;
+    --sidebar-foreground: 0 0% 9%;
+    --sidebar-primary: 0 0% 18%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 18%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 0 0% 64%;
+  }
+
+  .dark {
+    --background: 0 0% 9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 18%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 18%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 92%;
+    --primary-foreground: 0 0% 18%;
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 18%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 100% / 10%;
+    --input: 0 0% 100% / 15%;
+    --ring: 0 0% 45%;
+    --chart-1: 0 0% 93%;
+    --chart-2: 0 0% 45%;
+    --chart-3: 0 0% 32%;
+    --chart-4: 0 0% 25%;
+    --chart-5: 0 0% 18%;
+    --sidebar: 0 0% 18%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 248 55% 55%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 100% / 10%;
+    --sidebar-ring: 0 0% 45%;
+  }
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Inter Variable', sans-serif;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
 
-body {
-  margin: 0;
-  width: 100vw;
-  height: 100vh;
-  user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-}
-
-body.cursor-crosshair {
-  cursor: crosshair !important;
-}
-
-body.cursor-crosshair * {
-  cursor: crosshair !important;
-}
-
-#root {
-  width: 100%;
-  height: 100vh;
-  position: relative;
-}
-
-/* Selection Box Style */
-.selection-box {
-  border: 1px solid #55aaff;
-  background-color: rgba(75, 160, 255, 0.3);
-  position: fixed;
-  pointer-events: none;
-  z-index: 1000;
-  display: none;
-}
-
-/* Loader Style */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.loader {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #e0e0e0;
-  border-top: 2px solid #333;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  z-index: 2000;
-}
-
-.loader-text {
-  position: absolute;
-  bottom: 8px;
-  left: 32px;
-  color: #333;
-  font-size: 12px;
-  z-index: 2000;
-  user-select: none;
-}
-
-/* Toolbar Style */
-.toolbar {
-  position: absolute;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 12px;
-  background-color: rgba(30, 30, 30, 0.8);
-  padding: 4px 8px;
-  border-radius: 8px;
-  backdrop-filter: blur(4px);
-  z-index: 2000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.toolbar-display-mode {
-  position: relative;
-  display: inline-flex;
-}
-
-.toolbar-menu {
-  position: absolute;
-  bottom: calc(100% + 12px);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background-color: rgba(30, 30, 30, 0.9);
-  padding: 6px;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-  z-index: 2100;
-}
-
-.toolbar-menu-item {
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.toolbar-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.toolbar-menu-item.active {
-  background-color: rgba(75, 160, 255, 0.2);
-}
-
-.toolbar-btn {
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.toolbar-btn:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.toolbar-btn.active {
-  background-color: rgba(75, 160, 255, 0.2);
-}
-
-.toolbar-separator {
-  width: 1px;
-  height: 20px;
-  background-color: rgba(255, 255, 255, 0.2);
-  margin: 0 4px;
-  align-self: center;
-}
-
-.layers-list::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.layers-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.layers-list::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.layers-list::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-.settings-control input {
-  height: 28px;
-  min-height: 28px;
-  box-sizing: border-box;
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-.settings-control button {
-  height: 28px;
-  min-height: 28px;
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-.shadows-settings .fui-Text {
-  padding-right: 4px;
-}
-
-.shadows-settings .fui-Combobox {
-  padding-right: 4px;
-}
-
-.shadows-settings .fui-Input {
-  padding-right: 4px;
-}
-
-.shadows-settings .fui-Combobox input {
-  padding-right: 4px;
-}
-
-.settings-drawer-handle {
-  position: absolute;
-  top: 50%;
-  left: -14px;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 44px;
-  border: 1px solid #d1d1d1;
-  border-right: none;
-  background-color: rgb(234, 236, 240);
-  border-radius: 7px 0 0 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  z-index: 2500;
-}
-
-.settings-drawer-handle:hover {
-  background-color: rgb(224, 226, 230);
-}
-
-.settings-drawer-icon {
-  font-size: 12px;
-  line-height: 1;
-  color: rgba(0, 0, 0, 0.65);
-  user-select: none;
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
 }

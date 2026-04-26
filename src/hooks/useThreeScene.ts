@@ -19,34 +19,8 @@ export function useThreeScene(containerRef: React.RefObject<HTMLDivElement>) {
         const scene = new THREE.Scene();
         sceneRef.current = scene;
 
-        const gridSize = 100;
-        const gridDivisions = 50;
-
-        const grid = new THREE.GridHelper(gridSize, gridDivisions, 0x555555, 0xaaaaaa);
-        grid.rotation.x = Math.PI / 2;
-        scene.add(grid);
-
-        const axes = new THREE.AxesHelper(gridSize * 0.5);
-        scene.add(axes);
-
-        const originMaterialX = new THREE.LineBasicMaterial({ color: 0xff0000 });
-        const originGeometryX = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(-gridSize * 0.5, 0, 0),
-            new THREE.Vector3(gridSize * 0.5, 0, 0)
-        ]);
-        const originLineX = new THREE.Line(originGeometryX, originMaterialX);
-        scene.add(originLineX);
-
-        const originMaterialY = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-        const originGeometryY = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, -gridSize * 0.5, 0),
-            new THREE.Vector3(0, gridSize * 0.5, 0)
-        ]);
-        const originLineY = new THREE.Line(originGeometryY, originMaterialY);
-        scene.add(originLineY);
-
         // 2. Setup Renderer
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true, preserveDrawingBuffer: true });
         renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;
