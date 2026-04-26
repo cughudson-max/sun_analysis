@@ -119,7 +119,7 @@ export function TopHeader({
         <IconButton onClick={onDeleteClick} icon={<Trash2 className="w-4 h-4 text-destructive" />} title={t.topHeader.deleteAnalysis} />
       </div>
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-lg font-semibold text-foreground">
-        <img src="/src/favcion.png" className="w-6 h-6" alt="logo" />
+        <img src="./icon.svg" className="w-6 h-6" alt="logo" />
         <span>{AppName}</span>
       </div>
       <div className="flex items-center gap-1">
