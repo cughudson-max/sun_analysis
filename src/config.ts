@@ -1,2 +1,2 @@
 export const AppName = 'Sun Analysis';
-export const AppDescription = 'An software to calulate city, building sun analysis in fast way';
+export const AppDescription = 'A serverless application for performing sun light analysis on large-scale city and building models';

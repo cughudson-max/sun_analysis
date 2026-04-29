@@ -45,7 +45,7 @@ function GradientSelect({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="w-[200px] h-8 justify-start gap-2 px-1 flex items-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground cursor-pointer"
+            className="w-[120px] h-8 justify-start gap-2 px-1 flex items-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground cursor-pointer"
           >
             <div
               className="w-full h-6 rounded-sm flex-shrink-0"
@@ -98,7 +98,6 @@ function PrecisionSelect({
 
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{t.settings.analysisPrecision}</label>
       <div className="grid grid-cols-3 gap-2 p-2">
         {options.map((option) => (
           <button
@@ -112,8 +111,8 @@ function PrecisionSelect({
             )}
           >
             <div className="font-bold text-lg">{option.label} </div>
-            <div className="text-sm text-muted-foreground">{t.settings.precision.samplingInterval}: {t.settings.precision.minutes.replace('{count}', option.interval.toString())}</div>
-            <div className="text-xs text-muted-foreground mt-1">{option.description}</div>
+            <div className="text-sm py-1 text-muted-foreground">{t.settings.precision.samplingInterval}: {t.settings.precision.minutes.replace('{count}', option.interval.toString())}</div>
+          <div className="text-xs text-muted-foreground/40 mt-1">{option.description}</div>
           </button>
         ))}
       </div>
@@ -245,12 +244,12 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[720px] max-h-[90vh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader className="px-4 pb-2">
           <DialogTitle className="uppercase text-base font-bold">{t.settings.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 px-4">
+        <div className="space-y-2 px-4">
           <section className="space-y-3">
             <PrecisionSelect
               value={currentSettings.precision}
@@ -295,7 +294,7 @@ export function SettingsDialog({
             />
           </section>
         </div>
-        <DialogFooter className="flex justify-end gap-2 py-6 border-t">
+        <DialogFooter className="flex rounded-es-md rounded-ee-md justify-end gap-2 py-6 border-t">
           <Button variant="outline" className="h-8 px-4 uppercase" onClick={handleCancel}>
             {t.common.cancel}
           </Button>

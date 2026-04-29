@@ -595,9 +595,9 @@ export function useSunAnalysis({
       return true;
     } else {
       sunAnalysisRunIdRef.current += 1;
-      setIsSunAnalysisRunning(false);
-      if (isSunAnalysisRunning) clearSunAnalysis(false);
-      else clearSunAnalysis(true);
+      stopSignalRef.current = false;
+      clearSunAnalysis(true);
+      void runSunAnalysis();
       return true;
     }
   };

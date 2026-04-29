@@ -190,12 +190,12 @@ export function LocationMapDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[800px] max-h-[98vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="w-full">
         <DialogHeader className="px-4 pb-2">
           <DialogTitle className="uppercase text-base font-bold">{t.location.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="relative w-full h-[460px] p-2 bg-background overflow-hidden">
+        <div className="relative w-full h-[460px] p-2 overflow-hidden">
           <div
             ref={mapContainerRef}
             className="w-full border h-full cursor-grab relative"
@@ -203,7 +203,7 @@ export function LocationMapDialog({
           />
 
           {/* Search Box - Top Left */}
-          <div className="absolute top-4 left-4 w-64 z-10">
+          <div className="absolute top-4 left-4 max-w-64 z-10">
             <div className="relative bg-background rounded-md shadow-sm">
               <Input
                 placeholder={t.location.searchPlaceholder}
@@ -246,7 +246,7 @@ export function LocationMapDialog({
           </div>
         </div>
 
-          <DialogFooter className="lex justify-end gap-2 py-6 border-t">
+          <DialogFooter className="flex rounded-es-md rounded-ee-md justify-end gap-2 py-6 border-t">
             <div className="flex items-center justify-end gap-2">
               <Button className='h-8 px-4 uppercase' variant="outline" onClick={() => onOpenChange(false)}>
                 {t.common.cancel}

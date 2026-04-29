@@ -6,6 +6,7 @@ interface UseSunTooltipProps {
   cameraRef: MutableRefObject<THREE.Camera | null>;
   rendererRef: MutableRefObject<THREE.WebGLRenderer | null>;
   isSunAnalysisEnabled: boolean;
+  isTagMode: boolean;
   maxSunHours: number;
 }
 
@@ -14,15 +15,18 @@ export function useSunTooltip({
   cameraRef,
   rendererRef,
   isSunAnalysisEnabled,
+  isTagMode,
   maxSunHours
 }: UseSunTooltipProps) {
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [tooltipText, setTooltipText] = useState('');
   const raycaster = useRef(new THREE.Raycaster());
   const mouse = useRef(new THREE.Vector2());
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleCanvasClick = (event: MouseEvent) => {
+  const handleCanvasInteraction = (event: MouseEvent) => {
     if (!isSunAnalysisEnabled || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
+    if (!isTagMode) return;
 
     const canvas = rendererRef.current.domElement;
     const rect = canvas.getBoundingClientRect();
@@ -47,12 +51,12 @@ export function useSunTooltip({
 
         const hours = (sunScore * maxSunHours).toFixed(1);
 
+        if (hideTimeoutRef.current) {
+          clearTimeout(hideTimeoutRef.current);
+        }
+
         setTooltipText(`日照时长: ${hours} 小时`);
         setTooltipPosition({ x: event.clientX, y: event.clientY - 40 });
-
-        setTimeout(() => {
-          setTooltipPosition(null);
-        }, 3000);
 
         break;
       }
@@ -63,13 +67,15 @@ export function useSunTooltip({
     if (!rendererRef.current) return;
 
     const canvas = rendererRef.current.domElement;
-    canvas.removeEventListener('click', handleCanvasClick);
-    canvas.addEventListener('click', handleCanvasClick);
+    canvas.removeEventListener('mousemove', handleCanvasInteraction);
+    if (isTagMode && isSunAnalysisEnabled) {
+      canvas.addEventListener('mousemove', handleCanvasInteraction);
+    }
 
     return () => {
-      canvas.removeEventListener('click', handleCanvasClick);
+      canvas.removeEventListener('mousemove', handleCanvasInteraction);
     };
-  }, [isSunAnalysisEnabled, sceneRef, cameraRef, rendererRef, maxSunHours]);
+  }, [isTagMode, isSunAnalysisEnabled, sceneRef, cameraRef, rendererRef, maxSunHours]);
 
   return {
     tooltipPosition,

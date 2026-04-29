@@ -17,6 +17,7 @@ import { downloadScreenshot } from './utils/exportUtils';
 
 import { Loader } from './components/UI/Loader';
 import { TopHeader } from './components/UI/TopHeader';
+import { Toolbar } from './components/UI/Toolbar';
 import { WelcomeDialog } from './components/UI/WelcomeDialog';
 import { SunAnalysisLegend } from './components/UI/SunAnalysisLegend';
 import { AlertDialog } from './components/UI/AlertDialog';
@@ -37,8 +38,9 @@ function AppContent() {
   
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [isWelcomeDialogOpen, setIsWelcomeDialogOpen] = useState(false);
-  const [hasSelectedModel, setHasSelectedModel] = useState(true);
+  const [isTagMode, setIsTagMode] = useState(false);
+  const [isWelcomeDialogOpen, setIsWelcomeDialogOpen] = useState(true);
+  const [hasSelectedModel, setHasSelectedModel] = useState(false);
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
   const [alertDialogContent, setAlertDialogContent] = useState({ title: '', description: '' });
   const [bannerTexture, setBannerTexture] = useState<THREE.Texture | null>(null);
@@ -125,6 +127,7 @@ function AppContent() {
     cameraRef,
     rendererRef,
     isSunAnalysisEnabled,
+    isTagMode,
     maxSunHours
   });
 
@@ -166,6 +169,10 @@ function AppContent() {
       sunAnalysisRunIdRef.current += 1;
     }
     clearSunAnalysis(true);
+  };
+
+  const handleTagClick = () => {
+    setIsTagMode(!isTagMode);
   };
 
   const autoLoadRef = useRef(false);
@@ -391,18 +398,22 @@ function AppContent() {
       )}
 
       <TopHeader
-        onUploadClick={() => document.getElementById('file-input')?.click()}
-        onDownloadClick={handleDownloadClick}
-        onPlayClick={handlePlayClick}
-        onDeleteClick={handleDeleteClick}
-        isDownloading={isDownloading}
-        isPlaying={isSunAnalysisEnabled}
-        isCalculating={isSunAnalysisRunning}
         onSettingClick={() => setIsSettingsDialogOpen(true)}
         onThemeToggle={() => setIsDarkMode(!isDarkMode)}
         isDarkMode={isDarkMode}
         currentLanguage={language}
         onLanguageChange={setLanguage}
+      />
+
+      <Toolbar
+        onUploadClick={() => document.getElementById('file-input')?.click()}
+        onDownloadClick={handleDownloadClick}
+        onPlayClick={handlePlayClick}
+        onDeleteClick={handleDeleteClick}
+        onTagClick={handleTagClick}
+        isDownloading={isDownloading}
+        isCalculating={isSunAnalysisRunning}
+        isTagMode={isTagMode}
       />
 
       <WelcomeDialog

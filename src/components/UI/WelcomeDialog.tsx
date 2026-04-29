@@ -6,7 +6,8 @@ import {
   DialogDescription,
 } from './dialog';
 
-import { AppName, AppDescription } from '@/config';
+import { AppName } from '@/config';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface WelcomeDialogProps {
   open: boolean;
@@ -20,6 +21,7 @@ export function WelcomeDialog({
   onOpenChange,
   isLoading,
 }: WelcomeDialogProps) {
+  const { t } = useTranslation();
   const [bannerDimensions, setBannerDimensions] = useState<{ width: number; height: number } | null>(null);
   const bannerUrl = '/banner.jpg';
 
@@ -80,8 +82,8 @@ export function WelcomeDialog({
               <DialogTitle className="text-4xl font-bold text-white drop-shadow-lg">
                 {AppName}
               </DialogTitle>
-              <DialogDescription className="text-slate-200 text-base -mt-1 drop-shadow">
-                {AppDescription}
+              <DialogDescription className="text-slate-200 text-base font-mono pt-4 -mt-1">
+                {t.app.description}
               </DialogDescription>
               </div>
         </div>

@@ -10,4 +10,21 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-three': ['three'],
+          'vendor-rhino': ['rhino3dm'],
+          'vendor-maplibre': ['maplibre-gl'],
+          'vendor-ui': ['@fluentui/react-components', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
+  optimizeDeps: {
+    include: ['three', 'react', 'react-dom'],
+  },
 })

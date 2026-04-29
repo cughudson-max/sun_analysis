@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Settings, Play, Camera, FolderOpen, Moon, Sun, Globe, Check, Mail, Trash2 } from 'lucide-react';
+import { Settings, Moon, Sun, Globe, Check, Mail } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/UI/button';
-import { Spinner } from '@/components/UI/Spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/UI/popover';
 import { useTranslation } from '@/hooks/useTranslation';
 import { languages, Language } from '@/i18n/translations';
@@ -49,24 +48,7 @@ function LanguageSwitcher({ currentLanguage, onLanguageChange }: { currentLangua
   );
 }
 
-
-interface TopHeaderProps {
-  onSettingClick?: () => void;
-  onUploadClick?: () => void;
-  onDownloadClick?: () => void;
-  onPlayClick?: () => void;
-  onEmailClick?: () => void;
-  onThemeToggle?: () => void;
-  onLanguageChange?: (lang: Language) => void;
-  onDeleteClick?: () => void;
-  isDownloading?: boolean;
-  isPlaying?: boolean;
-  isCalculating?: boolean;
-  isDarkMode?: boolean;
-  currentLanguage?: Language;
-}
-
-function IconButton({ onClick, icon, title, loading }: { onClick?: () => void; icon: React.ReactNode; title?: string; loading?: boolean }) {
+function IconButton({ onClick, icon, title }: { onClick?: () => void; icon: React.ReactNode; title?: string }) {
   return (
     <Button
       onClick={onClick}
@@ -76,27 +58,26 @@ function IconButton({ onClick, icon, title, loading }: { onClick?: () => void; i
         "cursor-pointer"
       )}
       title={title}
-      disabled={loading}
     >
-      {loading ? <Spinner className="w-4 h-4" /> : icon}
+      {icon}
     </Button>
   );
 }
 
-
+interface TopHeaderProps {
+  onSettingClick?: () => void;
+  onEmailClick?: () => void;
+  onThemeToggle?: () => void;
+  onLanguageChange?: (lang: Language) => void;
+  isDarkMode?: boolean;
+  currentLanguage?: Language;
+}
 
 export function TopHeader({
   onSettingClick,
-  onUploadClick,
-  onDownloadClick,
-  onPlayClick,
   onEmailClick,
   onThemeToggle,
   onLanguageChange,
-  onDeleteClick,
-  isDownloading,
-  isPlaying: _isPlaying,
-  isCalculating,
   isDarkMode,
   currentLanguage = 'zh-CN',
 }: TopHeaderProps) {
@@ -112,17 +93,11 @@ export function TopHeader({
 
   return (
     <div className="fixed drop-shadow-sm top-0 left-0 w-full bg-background h-12 flex justify-between px-4 z-50 items-center">
-      <div className="flex items-center gap-1">
-        <IconButton onClick={onUploadClick} icon={<FolderOpen className="w-4 h-4" />} title={t.topHeader.upload} />
-        <IconButton onClick={onDownloadClick} icon={<Camera className="w-4 h-4" />} title={t.topHeader.download} loading={isDownloading} />
-        <IconButton onClick={onPlayClick} icon={<Play className="w-4 h-4" />} title={t.topHeader.sunAnalysis} loading={isCalculating} />
-        <IconButton onClick={onDeleteClick} icon={<Trash2 className="w-4 h-4 text-destructive" />} title={t.topHeader.deleteAnalysis} />
-      </div>
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-lg font-semibold text-foreground">
+      <div className="flex items-center gap-3">
         <img src="./icon.svg" className="w-6 h-6" alt="logo" />
-        <span>{AppName}</span>
+        <span className="text-lg font-semibold text-foreground">{AppName}</span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0">
         <LanguageSwitcher currentLanguage={currentLanguage} onLanguageChange={onLanguageChange || (() => {})} />
         <IconButton onClick={onThemeToggle} icon={isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />} title={isDarkMode ? t.topHeader.lightMode : t.topHeader.darkMode} />
         <IconButton onClick={handleEmailClick} icon={<Mail className="w-4 h-4" />} title={t.topHeader.email} />

@@ -3,6 +3,7 @@ export type Language = 'zh-CN' | 'zh-TW' | 'en';
 export interface TranslationKeys {
   app: {
     title: string;
+    description: string;
   };
   topHeader: {
     sunAnalysis: string;
@@ -106,6 +107,7 @@ export const translations: Record<Language, TranslationKeys> = {
   'zh-CN': {
     app: {
       title: '3D 模型查看器',
+      description: '一款用于对大规模城市和建筑模型进行日照光线分析的轻量级应用',
     },
     topHeader: {
       sunAnalysis: '日照分析',
@@ -207,6 +209,7 @@ export const translations: Record<Language, TranslationKeys> = {
   'zh-TW': {
     app: {
       title: '3D 模型檢視器',
+      description: '一款用於對大規模城市和建築模型進行日照光線分析的輕量級應用',
     },
     topHeader: {
       sunAnalysis: '日照分析',
@@ -308,6 +311,7 @@ export const translations: Record<Language, TranslationKeys> = {
   'en': {
     app: {
       title: '3D Model Viewer',
+      description: 'A serverless application for performing sun light analysis on large-scale city and building models',
     },
     topHeader: {
       sunAnalysis: 'Sun Analysis',
